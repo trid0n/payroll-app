@@ -18,17 +18,30 @@ The offline double-click-and-open version it grew out of is kept in `archive/`.
 
 ## Access model — please read
 
-**There is no login.** Anyone who opens the URL can read and edit everything,
-including your employees' names, hours and pay rates.
+**There is no login, and the repository is public.** Anyone can read and edit
+everything, including your employees' names, hours and pay rates.
 
-That was a deliberate choice, so that the app just opens. It does mean:
+Both were deliberate choices, so that the app just opens. Together they mean:
 
-- **Treat the URL like a password.** Don't post it anywhere public, and be
-  careful pasting it into anything that might index or share it.
-- `robots.txt` and a `noindex` tag keep it out of Google, so it won't be found
-  by searching — but a guessed or leaked URL is full access.
-- Anyone who reaches it can also **delete** everything, which is the real reason
-  to keep the automatic backups switched on (see "Backups" below).
+- The Supabase project URL and key are in `index.html`, which is published at
+  **github.com/trid0n/payroll-app** for anyone to read. The database has no
+  further protection, so that is enough for full access. GitHub is routinely
+  scraped for exactly these keys.
+- `robots.txt` and a `noindex` tag keep the *deployed app* out of Google, but
+  they do nothing about the repo.
+- Anyone who reaches it can also **delete** everything. That is the real reason
+  to keep the automatic backups switched on (see "Backups" below) — treat them
+  as essential here, not as a nicety.
+- If the data is ever wiped or tampered with, restoring from a backup fixes the
+  data but not the access; only the two changes below do that.
+
+Two things reverse this, independently:
+
+1. **Make the repo private** — github.com → Settings → General → Danger Zone →
+   Change repository visibility. Vercel deploys from private repos identically.
+2. **Add a login** — `supabase/lock-down.sql` plus the matching change it
+   describes in `index.html`. After that the published key grants nothing
+   without a password, and the repo being public stops mattering.
 
 If you want to change this later, it's a small job, not a rebuild:
 `supabase/lock-down.sql` puts the app behind a single login and explains the
@@ -93,10 +106,11 @@ loading.
 
 ### 5. Put it on GitHub
 
-Create a new **private** repo on github.com, then from this folder:
+The repo is **github.com/trid0n/payroll-app**, and it is public — see "Access
+model" above for what that costs. From this folder:
 
 ```bash
-git remote add origin https://github.com/YOURNAME/YOURREPO.git
+git remote add origin https://github.com/trid0n/payroll-app.git
 ```
 
 ```bash

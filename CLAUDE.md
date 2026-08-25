@@ -116,11 +116,19 @@ presentational components below it.
 **This deployment has no login.** Anyone who opens the URL can read and edit all
 of the payroll data, including employee names and pay rates.
 
-That was Liam's explicit decision, made after the trade-off was spelled out. It
-is not an oversight, and it is not something to "fix" unprompted. It is written
-as an explicit `using (true)` RLS policy rather than by disabling RLS, so the
-intent is visible in the schema, and `robots.txt` plus a `noindex` meta keep the
-URL out of search results.
+**The repo is also public** (github.com/trid0n/payroll-app), so the project URL
+and anon key are published, and with the policies below that is full access to
+the data. Liam was told this plainly before the first push and chose it anyway.
+
+Both were his explicit decisions, made after the trade-offs were spelled out.
+They are not oversights, and not something to "fix" unprompted — but they are
+also not settled forever, so if he asks about tightening things up, the two
+independent levers are repo visibility and `supabase/lock-down.sql`.
+
+Access is written as an explicit `using (true)` RLS policy rather than by
+disabling RLS, so the intent is visible in the schema. `robots.txt` plus a
+`noindex` meta keep the deployed URL out of search results, though they do
+nothing about the repo.
 
 If he ever changes his mind, `supabase/lock-down.sql` is written and ready — it
 needs a matching login screen in `index.html`, and the file carries the sketch
