@@ -20,7 +20,8 @@ jobs:
         # workflow fails every single night, with a failure email nobody reads as
         # the only signal. That has already happened once on another project.
         run: |
-          curl -sf "https://YOURPROJECT.supabase.co/rest/v1/payroll_config?select=id&limit=1" \
-            -H "apikey: sb_publishable_REPLACE_ME" \
-            -H "Authorization: Bearer sb_publishable_REPLACE_ME" \
+          KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdyc3BtanV1cWZ2amt3bHN3aW9qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc2NjUyNTYsImV4cCI6MjEwMzI0MTI1Nn0.19IwDPKIUcvnM4yaEVYg2-l2d5pmTDqYfG7dGlhzx8s"
+          curl -sf "https://grspmjuuqfvjkwlswioj.supabase.co/rest/v1/payroll_config?select=id&limit=1" \
+            -H "apikey: $KEY" \
+            -H "Authorization: Bearer $KEY" \
             -o /dev/null
