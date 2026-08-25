@@ -378,6 +378,18 @@ Facts about this harness worth knowing before you write one:
   the *backup JSON* input, not the CSV one — the CSV input is
   `input[accept*="csv"]`. Grabbing the wrong one reads as "the import silently
   did nothing".
+- **Don't drive controls inside a closed `<details>`.** The holiday bulk-import
+  UI on the Rates tab lives inside a `<details>` whose summary reads "Load a
+  fresh year's list (replaces everything below)". Setting its textarea and
+  clicking its buttons from script works perfectly *while the disclosure is
+  still shut* — so the feature appears to function while its elements report
+  `innerText: ''`, sit past `document.scrollHeight`, and fail every hit test.
+  That combination reads exactly like an unreachable-element bug, and it cost a
+  long detour chasing `CollapseBody`, which was entirely innocent. Open the
+  disclosure by clicking its `<summary>` first, then measure. More generally:
+  `innerText === ''` on an element with a real bounding box means *not
+  rendered* — check for a closed `<details>` or a `visibility: hidden` ancestor
+  before concluding the layout is broken.
 
 ### Things the port left behind that had to be removed afterwards
 
@@ -450,29 +462,6 @@ children one at a time and watch `document.documentElement.scrollHeight`.
   mapping `weekday → hourly` at the lookup, and then re-validating against a
   real payslip. Don't fix it casually — and if you do, the historical rows
   already in `committed_sheets` hold the wrong values and need repairing too.
-- **The public-holiday bulk paste can be parsed but never applied.** On the Rates
-  tab, pasting a year's holiday list and clicking "Parse pasted list" produces a
-  correct preview ("Found 3 dates"), but that button and the "Replace holiday
-  list with these N" button below it sit past the bottom of the scrollable page
-  and cannot be reached or clicked. `CollapseBody` wraps each section in
-  `grid-template-rows: 0fr/1fr` with `overflow: hidden`, and the resolved track
-  height stays pinned at whatever it was when the section opened — content that
-  appears *after* that is clipped, and because the overflow is hidden the
-  document never grows to include it. Switching tabs and back does not reset it.
-
-  **This is pre-existing, not a consequence of going online.** Verified by
-  serving `archive/schads-timesheet-calculator_36.html` and repeating the steps:
-  identical behaviour, button at y=2222 in a 2052px document. The two versions
-  differ by ~40px, which is exactly the removed backup bar.
-
-  A DOM-wide sweep for elements whose bottom exceeds `document.scrollHeight`
-  found this on the Rates tab only — Import, Km's History, Employee Rates and
-  Award update are all clean, so the weekly workflow is unaffected. Adding
-  holidays one at a time with "Add holiday" also works.
-
-  Fixing it means changing `CollapseBody`, which wraps *every* section, so it
-  needs exercising across all five tabs afterwards — not a one-line change to
-  make casually.
 - Karren Web's Saturday/OT rates on real payslips don't cleanly match a standard
   Level 2.1 — likely an individually negotiated rate, never fully reconciled.
 - Tristan Holland's payslips have shown an "Ordinary Hours - higher rate" line
