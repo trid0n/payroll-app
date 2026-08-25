@@ -1328,6 +1328,12 @@ function App() {
 
   const [shareMsg, setShareMsg] = useState("");
 
+  // UNREACHABLE FROM THE UI. downloadAppZip, chooseBackupFolder, the backup-folder
+  // handle in IndexedDB, buildZip and onImportConfigFile all lost their buttons when
+  // the backup bar was removed. Left in place rather than torn out: they interlock,
+  // they work, and putting an export button back is a one-line change. window.exportBackup
+  // and window.importBackup (defined further down) are the live paths. Don't assume
+  // anything down here runs.
   const downloadAppZip = async () => {
     const html = (typeof window !== "undefined" && window.__PRISTINE_HTML__) || document.documentElement.outerHTML;
     const now = new Date().toISOString();
@@ -2020,6 +2026,44 @@ function App() {
     persist(cfg);
   };
 
+  // Export and import have no buttons any more — saving is automatic and nothing
+  // in the UI should suggest otherwise. They stay reachable from the console so
+  // that recovering from a bad day doesn't need a code change. Re-registered every
+  // render rather than once, so they always close over current state.
+  useEffect(() => {
+    window.exportBackup = () => {
+      const now = new Date().toISOString();
+      const payload = { levels, levelOrder, roster, aliases, holidays, kmSettings, allowances, committedSheets, themeMode, exportedAt: now };
+      downloadBlob(JSON.stringify(payload, null, 2),
+        `support-beyond-backup-${now.slice(0, 10)}-${now.slice(11, 19).replace(/:/g, "")}.json`,
+        "application/json");
+      return `Exported ${committedSheets.length} committed week(s) and ${roster.length} people.`;
+    };
+    window.importBackup = (jsonTextOrObject) => {
+      const apply = (cfg) => {
+        if (!cfg || typeof cfg !== "object" || !cfg.roster) throw new Error("that isn't a backup from this app");
+        applyConfigToState(cfg);
+        return `Restored ${(cfg.committedSheets || []).length} week(s) and ${cfg.roster.length} people. Written to the database — refresh to confirm.`;
+      };
+      // Called bare from the console, open a file picker: a recovery path that
+      // needs the JSON pasted into the console by hand isn't one you'd manage
+      // on a bad day.
+      if (jsonTextOrObject === undefined) {
+        const picker = document.createElement("input");
+        picker.type = "file";
+        picker.accept = "application/json";
+        picker.onchange = () => {
+          const file = picker.files && picker.files[0];
+          if (!file) return;
+          file.text().then((t) => { try { console.log(apply(JSON.parse(t))); } catch (e) { console.error(e); } });
+        };
+        picker.click();
+        return "Choose the backup .json file…";
+      }
+      return apply(typeof jsonTextOrObject === "string" ? JSON.parse(jsonTextOrObject) : jsonTextOrObject);
+    };
+  });
+
   const onImportConfigFile = (e) => {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
@@ -2215,9 +2259,6 @@ function App() {
             <button onClick={undo} disabled={undoStack.length === 0} title="Undo (Ctrl+Z)" style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.16)", borderRadius: 999, padding: "6px 14px 6px 10px", cursor: undoStack.length === 0 ? "default" : "pointer", color: HEADER_TEXT, fontSize: 12.5, fontWeight: 600, opacity: undoStack.length === 0 ? 0.45 : 1 }}>
               <Undo2 size={14} /> Undo
             </button>
-            <button onClick={downloadAppZip} style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.16)", borderRadius: 999, padding: "6px 14px 6px 10px", cursor: "pointer", color: HEADER_TEXT, fontSize: 12.5, fontWeight: 600 }}>
-              <Download size={14} /> Download app + backup
-            </button>
             <ThemeToggle mode={themeMode} onToggle={toggleTheme} />
           </div>
         </div>
@@ -2248,20 +2289,11 @@ function App() {
         {!storageReady && <div style={{ fontSize: 13, color: T.textDim }}>Loading saved settings…</div>}
         {saveErr && <div className="sb-card" style={S.cardStyle}><span style={{ color: T.warn, fontSize: 13 }}>{saveErr}</span></div>}
 
-        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, padding: "4px 2px" }}>
-          <span style={{ fontSize: 11.5, color: T.textFaint }}>Everything saves online as you go. Download a backup if you want a copy of your own.</span>
-          <div style={{ display: "flex", gap: 8, marginLeft: "auto", alignItems: "center" }}>
-            {fsApiSupported && (
-              <button className="sb-btn-hover" style={S.btnGhost} onClick={chooseBackupFolder}>
-                {backupDirName ? `Saving to: ${backupDirName}` : "Choose backup folder"}
-              </button>
-            )}
-            <button className="sb-btn-hover" style={S.btnGhost} onClick={() => importFileRef.current?.click()}><Upload size={13} /> Import backup</button>
-            <input ref={importFileRef} type="file" accept="application/json" onChange={onImportConfigFile} style={{ display: "none" }} />
-          </div>
-          {importMsg && <span style={{ fontSize: 11.5, color: importMsg.includes("restored") ? T.good : T.warn, fontWeight: 600, width: "100%" }}>{importMsg}</span>}
-          {folderMsg && <span style={{ fontSize: 11.5, color: folderMsg.startsWith("✓") ? T.good : T.warn, fontWeight: 600, width: "100%" }}>{folderMsg}</span>}
-        </div>
+        {/* The backup bar (choose folder / import / export) was removed: saving is
+            automatic and there is nothing here for anyone to have to do. Export and
+            import still exist as console functions — see the useEffect that defines
+            window.exportBackup / window.importBackup — so a restore is possible
+            without a code change, but nothing in the interface implies an obligation. */}
 
         {/* Import CSV */}
         {activeTab === "sec-import" && (

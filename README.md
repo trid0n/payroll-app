@@ -166,32 +166,39 @@ old backup over newer online work.
 
 ---
 
-## Saving, and backups
+## Saving
 
-**Everything saves online as you go.** Every edit — a rate, a km figure, a
-committed week — goes straight to the database as you make it. There is nothing
-to remember to click, and closing the tab loses nothing. If a save can't get
-through, the app says so and parks the work until next time.
+**Everything saves online as you go, and there is nothing to click.** Every edit
+— a rate, a km figure, a committed week — goes straight to the database as you
+make it. Closing the tab loses nothing. If a save can't get through, the app
+says so and parks the work until next time, including if the browser or the
+machine dies mid-edit.
 
-Backups are now **manual and optional**. The app used to write a backup file on
-every commit; it doesn't any more, because the database is the live copy and the
-file was just noise.
+There is deliberately no save button, no export button, and no backup prompt.
+The app used to write a backup file on every commit and that was removed: the
+database is the live copy, and the file was noise.
 
-If you ever want a copy of your own, **Download app + backup** writes one out
-(into your chosen folder if you've picked one, otherwise as a download).
-**Import backup** reads one back in — that's a deliberate act now, never
-automatic.
+### If you ever need to recover
 
-Worth knowing what each protects against, because they aren't the same thing:
+Worth knowing this exists, even though you'll probably never use it. There is no
+undo for destroyed data — Supabase's free tier has no restorable backups, and
+the app still has a **Delete all** button in Km's History.
 
-| | Protects against |
-| --- | --- |
-| Saving online (automatic) | losing work — a closed tab, a crash, a flat battery |
-| A backup file (manual) | the data being *destroyed* — a mistaken **Delete all**, or someone finding the URL |
+Press **F12** to open the browser console. To take a copy of everything:
 
-Supabase's free tier doesn't include restorable backups, so if the data is ever
-wiped there is no undo other than a file you took yourself. Taking one before a
-big change — a rate rise, a bulk edit — costs one click.
+```js
+exportBackup()
+```
+
+That downloads a JSON file. To put one back, type this and pick the file:
+
+```js
+importBackup()
+```
+
+Both work from the console only — there are no buttons for them, on purpose.
+Worth running `exportBackup()` once before anything drastic, like a rate rise or
+a bulk edit.
 
 ---
 

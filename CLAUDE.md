@@ -465,11 +465,22 @@ children one at a time and watch `document.documentElement.scrollHeight`.
   `index.html`, but that copy is no longer a working offline app — it points at
   Supabase and needs the internet. The **backup JSON is the part that matters**
   now. Worth revisiting if a genuine offline mode is ever wanted.
-- **There are no automatic backups any more**, at Liam's request — the file on
-  every commit was noise once the database became the live copy. Supabase's free
-  tier has no restorable backups either, so a **Delete all** (or anyone who finds
-  the URL) is unrecoverable unless someone took a manual backup. He was told
-  this. If he ever reports lost data, that is the first thing to establish.
+- **There is no backup UI at all any more**, at Liam's request, asked three
+  times: no automatic file on commit, and no folder / import / export buttons.
+  His requirement was "it should save whenever I do anything" and anything on
+  screen suggesting otherwise read to him as an obligation. **Don't put a save,
+  export or backup control back without him asking for it.**
+
+  The capability survives as `window.exportBackup()` and `window.importBackup()`
+  (bare `importBackup()` opens a file picker), registered in a `useEffect` with
+  no dependency array so they always close over current state. They are
+  documented in the README under "If you ever need to recover".
+
+  The exposure this leaves: Supabase's free tier has no restorable backups, and
+  **Delete all** is still in Km's History with no login on the app. A wipe is
+  unrecoverable unless someone happened to run `exportBackup()`. He was told
+  this plainly each time. If he ever reports lost data, establish that first —
+  and don't reflexively add backups back as the fix; ask.
 - The app has no multi-device conflict handling: two devices editing at once is
   last-write-wins on the whole config blob. Fine for one person; would need
   thought if that ever changes.
