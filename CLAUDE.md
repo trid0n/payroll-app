@@ -44,7 +44,9 @@ The file you edit is the file that gets served.
 Do not introduce a framework, a bundler or a build step. The entire value of
 this arrangement is that there is nothing to keep alive. This machine has no
 `node`, no `npm`, no `gh` and no `supabase` CLI, and the app is expected to keep
-working without them.
+working without them. `python` resolves to the Windows Store stub, not an
+interpreter — for text processing, use Git Bash's `awk`/`sed`/`grep` or
+PowerShell.
 
 ### How the port worked (and why it was cheap)
 
