@@ -5,8 +5,17 @@ Jibble time export into a checked, SCHADS-award-correct pay breakdown per
 employee, tracks km reimbursement and allowances, and cross-checks the result
 against what was entered into Payroller.
 
+**Live at https://payroll-app-trid0n1.vercel.app**
+
 This is the **online version**. It runs at a URL, from any device, with the data
 living in a database instead of in one browser's storage.
+
+| | |
+| --- | --- |
+| App | https://payroll-app-trid0n1.vercel.app |
+| Repo | https://github.com/trid0n/payroll-app (public) |
+| Database | Supabase project `grspmjuuqfvjkwlswioj` |
+| Deploys | automatically, on every push to `main` |
 
 - One static `index.html`, served by **Vercel**. No build step, no server.
 - Data in **Supabase** (Postgres).
