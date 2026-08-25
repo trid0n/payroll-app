@@ -1429,9 +1429,9 @@ function App() {
 
   // pruneOldBackups() and writeBackupToFolder() lived here. They existed to serve
   // the automatic backup on every commit, which kept only the 2 most recent files
-  // so the folder didn't fill up. Backups are now manual and occasional, so there
-  // is nothing to prune and nothing writing on a schedule — "Download app + backup"
-  // writes into the chosen folder directly.
+  // so the folder didn't fill up. Nothing writes on a schedule any more, so there
+  // is nothing to prune. Taking a copy is now window.exportBackup(), from the
+  // console, and it downloads rather than writing to a folder.
 
   const [dragLevelKey, setDragLevelKey] = useState(null);
   const [dragOverKey, setDragOverKey] = useState(null);
@@ -1452,7 +1452,7 @@ function App() {
   // thing tying two machines together. Now the database is the single source of
   // truth, and the same code is a loaded gun — a months-old file left in that
   // folder would silently overwrite the live data at startup, with no prompt.
-  // Restoring from a backup is now a deliberate act: the "Import backup" button.
+  // Restoring is now a deliberate act, and not one the UI offers: window.importBackup().
   const [newHolidayDate, setNewHolidayDate] = useState("");
   const [newHolidayName, setNewHolidayName] = useState("");
   const [holidayImportText, setHolidayImportText] = useState("");
@@ -2008,8 +2008,7 @@ function App() {
 
   // downloadBackupFile() lived here and was called on every commit. The save to
   // the database used to ride along inside it, which is why commitSheet now calls
-  // persist() directly. "Download app + backup" is the remaining, deliberate way
-  // to get a copy out.
+  // persist() directly. window.exportBackup() is the remaining way to get a copy out.
 
   const importFileRef = useRef(null);
   const applyConfigToState = (cfg) => {
