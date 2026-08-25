@@ -38,9 +38,8 @@ Both were deliberate choices, so that the app just opens. Together they mean:
   scraped for exactly these keys.
 - `robots.txt` and a `noindex` tag keep the *deployed app* out of Google, but
   they do nothing about the repo.
-- Anyone who reaches it can also **delete** everything. That is the real reason
-  to keep the automatic backups switched on (see "Backups" below) — treat them
-  as essential here, not as a nicety.
+- Anyone who reaches it can also **delete** everything, and there is no undo —
+  see "Saving, and backups" below for the one thing that guards against that.
 - If the data is ever wiped or tampered with, restoring from a backup fixes the
   data but not the access; only the two changes below do that.
 
@@ -167,17 +166,32 @@ old backup over newer online work.
 
 ---
 
-## Backups
+## Saving, and backups
 
-The app still backs itself up on every commit:
+**Everything saves online as you go.** Every edit — a rate, a km figure, a
+committed week — goes straight to the database as you make it. There is nothing
+to remember to click, and closing the tab loses nothing. If a save can't get
+through, the app says so and parks the work until next time.
 
-- On Chrome or Edge, click **Choose backup folder** once and it writes backup
-  JSON straight into that folder from then on, keeping the 2 most recent.
-- Otherwise it downloads the backup file.
+Backups are now **manual and optional**. The app used to write a backup file on
+every commit; it doesn't any more, because the database is the live copy and the
+file was just noise.
 
-With no login on the app, this is your safety net against someone finding the
-URL and wiping the data, as well as against ordinary mistakes. It's worth
-setting the folder up on whichever machine you use most.
+If you ever want a copy of your own, **Download app + backup** writes one out
+(into your chosen folder if you've picked one, otherwise as a download).
+**Import backup** reads one back in — that's a deliberate act now, never
+automatic.
+
+Worth knowing what each protects against, because they aren't the same thing:
+
+| | Protects against |
+| --- | --- |
+| Saving online (automatic) | losing work — a closed tab, a crash, a flat battery |
+| A backup file (manual) | the data being *destroyed* — a mistaken **Delete all**, or someone finding the URL |
+
+Supabase's free tier doesn't include restorable backups, so if the data is ever
+wiped there is no undo other than a file you took yourself. Taking one before a
+big change — a rate rise, a bulk edit — costs one click.
 
 ---
 

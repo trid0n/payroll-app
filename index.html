@@ -1421,35 +1421,11 @@ function App() {
     }
   };
 
-  // Filenames are support-beyond-backup-YYYY-MM-DD-HHMMSS.json, so a plain
-  // lexical sort is also a chronological sort — no need to open each file.
-  const pruneOldBackups = async (keepCount = 2) => {
-    if (!backupDirHandle) return;
-    try {
-      const names = [];
-      for await (const entry of backupDirHandle.values()) {
-        if (entry.kind === "file" && /^support-beyond-backup-\d{4}-\d{2}-\d{2}-\d{6}\.json$/.test(entry.name)) names.push(entry.name);
-      }
-      names.sort().reverse();
-      for (const name of names.slice(keepCount)) {
-        try { await backupDirHandle.removeEntry(name); } catch (e) { /* skip if it can't be removed */ }
-      }
-    } catch (e) { /* pruning is best-effort — never block the actual backup over this */ }
-  };
-
-  const writeBackupToFolder = async (filename, jsonStr) => {
-    if (!backupDirHandle) return { ok: false, reason: "no-folder" };
-    try {
-      const perm = await backupDirHandle.requestPermission({ mode: "readwrite" });
-      if (perm !== "granted") return { ok: false, reason: "permission" };
-      const fileHandle = await backupDirHandle.getFileHandle(filename, { create: true });
-      const writable = await fileHandle.createWritable();
-      await writable.write(jsonStr);
-      await writable.close();
-      await pruneOldBackups(2);
-      return { ok: true };
-    } catch (e) { return { ok: false, reason: "error" }; }
-  };
+  // pruneOldBackups() and writeBackupToFolder() lived here. They existed to serve
+  // the automatic backup on every commit, which kept only the 2 most recent files
+  // so the folder didn't fill up. Backups are now manual and occasional, so there
+  // is nothing to prune and nothing writing on a schedule — "Download app + backup"
+  // writes into the chosen folder directly.
 
   const [dragLevelKey, setDragLevelKey] = useState(null);
   const [dragOverKey, setDragOverKey] = useState(null);
@@ -1464,33 +1440,13 @@ function App() {
   const [storageReady, setStorageReady] = useState(false);
   const [saveErr, setSaveErr] = useState("");
 
-  useEffect(() => {
-    if (!fsApiSupported || !storageReady || !backupDirHandle) return;
-    (async () => {
-      try {
-        const perm = await backupDirHandle.queryPermission({ mode: "readwrite" });
-        if (perm !== "granted") return; // never prompt on load — silently skip
-        let latestFile = null, latestTime = 0;
-        for await (const entry of backupDirHandle.values()) {
-          if (entry.kind === "file" && /^support-beyond-backup-.*\.json$/.test(entry.name)) {
-            const file = await entry.getFile();
-            if (file.lastModified > latestTime) { latestTime = file.lastModified; latestFile = file; }
-          }
-        }
-        if (!latestFile) return;
-        const text = await latestFile.text();
-        const cfg = JSON.parse(text);
-        const folderTime = cfg.exportedAt ? new Date(cfg.exportedAt).getTime() : latestTime;
-        const localTime = lastBackupAt ? new Date(lastBackupAt).getTime() : 0;
-        if (folderTime > localTime) {
-          applyConfigToState(cfg);
-          setImportMsg(`Loaded latest backup from "${backupDirName}" ✓`);
-          setTimeout(() => setImportMsg(""), 5000);
-        }
-      } catch (e) { /* folder unreadable this session — don't disrupt loading */ }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storageReady, backupDirHandle]);
+  // Removed on going online: this used to read the newest file out of the backup
+  // folder on every load and, if it looked newer than the last backup this browser
+  // wrote, apply it over everything. That made sense when the folder was the only
+  // thing tying two machines together. Now the database is the single source of
+  // truth, and the same code is a loaded gun — a months-old file left in that
+  // folder would silently overwrite the live data at startup, with no prompt.
+  // Restoring from a backup is now a deliberate act: the "Import backup" button.
   const [newHolidayDate, setNewHolidayDate] = useState("");
   const [newHolidayName, setNewHolidayName] = useState("");
   const [holidayImportText, setHolidayImportText] = useState("");
@@ -1499,7 +1455,6 @@ function App() {
   const [holidaysUndo, setHolidaysUndo] = useState(null);
   const [holidaysActionMsg, setHolidaysActionMsg] = useState("");
   const [committed, setCommitted] = useState(false);
-  const [committedBackupResult, setCommittedBackupResult] = useState(null);
   const [exportFY, setExportFY] = useState(() => {
     const now = new Date();
     const y = now.getFullYear();
@@ -1980,12 +1935,15 @@ function App() {
     const nextRoster = roster.map((r) => { const snap = record.perEmployee[r.id]; return snap && snap.weekKm > 0 ? { ...r, kmYTD: (r.kmYTD || 0) + snap.weekKm } : r; });
     setCommittedSheets(nextCommittedSheets);
     setRoster(nextRoster);
-    const backupResult = await downloadBackupFile({ committedSheets: nextCommittedSheets, roster: nextRoster });
+    // Committing used to write a backup file, and the save to storage rode along
+    // inside that. Now that every change goes straight to the database, the file
+    // was just noise on every commit — but the save still has to happen, so it is
+    // called directly here rather than as a side effect of the backup.
+    await persist({ committedSheets: nextCommittedSheets, roster: nextRoster });
     resetImport();
     setCommitted(true);
-    setCommittedBackupResult(backupResult);
     openSection("sec-committed");
-    setTimeout(() => { setCommitted(false); setCommittedBackupResult(null); }, 6000);
+    setTimeout(() => { setCommitted(false); }, 6000);
   };
 
   const deleteSheet = (id) => {
@@ -2042,24 +2000,10 @@ function App() {
     URL.revokeObjectURL(url);
   };
 
-  const downloadBackupFile = async (overrides = {}) => {
-    const now = new Date().toISOString();
-    const payload = {
-      levels: overrides.levels ?? levels, levelOrder: overrides.levelOrder ?? levelOrder, roster: overrides.roster ?? roster,
-      aliases: overrides.aliases ?? aliases, holidays: overrides.holidays ?? holidays, kmSettings: overrides.kmSettings ?? kmSettings,
-      allowances: overrides.allowances ?? allowances, committedSheets: overrides.committedSheets ?? committedSheets,
-      themeMode: overrides.themeMode ?? themeMode, exportedAt: now,
-    };
-    const dateTag = now.slice(0, 10);
-    const timeTag = now.slice(11, 19).replace(/:/g, "");
-    const filename = `support-beyond-backup-${dateTag}-${timeTag}.json`;
-    const jsonStr = JSON.stringify(payload, null, 2);
-    const writeResult = await writeBackupToFolder(filename, jsonStr);
-    if (!writeResult.ok) downloadBlob(jsonStr, filename, "application/json");
-    setLastBackupAt(now);
-    persist({ ...overrides, lastBackupAt: now });
-    return { wroteToFolder: writeResult.ok, reason: writeResult.reason, filename };
-  };
+  // downloadBackupFile() lived here and was called on every commit. The save to
+  // the database used to ride along inside it, which is why commitSheet now calls
+  // persist() directly. "Download app + backup" is the remaining, deliberate way
+  // to get a copy out.
 
   const importFileRef = useRef(null);
   const applyConfigToState = (cfg) => {
@@ -2305,7 +2249,7 @@ function App() {
         {saveErr && <div className="sb-card" style={S.cardStyle}><span style={{ color: T.warn, fontSize: 13 }}>{saveErr}</span></div>}
 
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, padding: "4px 2px" }}>
-          <span style={{ fontSize: 11.5, color: T.textFaint }}>Backups save automatically when you commit a sheet.</span>
+          <span style={{ fontSize: 11.5, color: T.textFaint }}>Everything saves online as you go. Download a backup if you want a copy of your own.</span>
           <div style={{ display: "flex", gap: 8, marginLeft: "auto", alignItems: "center" }}>
             {fsApiSupported && (
               <button className="sb-btn-hover" style={S.btnGhost} onClick={chooseBackupFolder}>
@@ -2786,14 +2730,7 @@ function App() {
           <CollapseBody open={sectionOpen["sec-committed"]}>
           {committed && (
             <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 10, background: T.accentSoft, border: `1px solid ${T.cardBorder}`, fontSize: 13, fontWeight: 600 }}>
-              <span style={{ color: T.good }}>✓ Sheet committed — km's added to each person's YTD.</span>{" "}
-              {committedBackupResult?.wroteToFolder ? (
-                <span style={{ color: T.good }}>Backup saved to "{backupDirName}" ✓</span>
-              ) : backupDirHandle ? (
-                <span style={{ color: T.warn }}>Backup downloaded instead — couldn't write to "{backupDirName}" this time, try clicking "Choose backup folder" again.</span>
-              ) : (
-                <span style={{ color: T.good }}>Backup downloaded ✓</span>
-              )}
+              <span style={{ color: T.good }}>✓ Sheet committed — km's added to each person's YTD, and saved online.</span>
             </div>
           )}
           <p style={{ fontSize: 13, color: T.textDim, marginTop: 6 }}>Every committed week's km's, for cross-checking later. Click a period to see the per-person breakdown — figures are editable right here if you spot a mistake, and the correction rolls straight into km YTD.</p>

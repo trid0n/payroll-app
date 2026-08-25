@@ -379,6 +379,23 @@ Facts about this harness worth knowing before you write one:
   `input[accept*="csv"]`. Grabbing the wrong one reads as "the import silently
   did nothing".
 
+### Things the port left behind that had to be removed afterwards
+
+Going online silently changed what some offline-era code *means*. Worth checking
+for more of this shape before assuming the port is finished.
+
+- **A backup-folder effect that restored over the live data on load.** It read
+  the newest file from the chosen backup folder on every startup and, if it
+  looked newer than this browser's last backup, applied it over everything with
+  no prompt. Sane when a shared folder was the only thing syncing two machines;
+  a loaded gun once the database became the source of truth — a months-old file
+  left in that folder would have silently overwritten live payroll data. Removed.
+- **The save rode inside the backup.** `commitSheet` called
+  `downloadBackupFile()`, which wrote the file *and* called `persist()`. Deleting
+  the backup call would have quietly stopped commits saving at all. `commitSheet`
+  now calls `persist()` directly. Check for this pattern before removing anything
+  that looks like it only does I/O.
+
 ### Bugs found only by exercising the app
 
 - **Invisible error message.** The fatal-error heading hardcoded the dark
@@ -448,6 +465,11 @@ children one at a time and watch `document.documentElement.scrollHeight`.
   `index.html`, but that copy is no longer a working offline app — it points at
   Supabase and needs the internet. The **backup JSON is the part that matters**
   now. Worth revisiting if a genuine offline mode is ever wanted.
+- **There are no automatic backups any more**, at Liam's request — the file on
+  every commit was noise once the database became the live copy. Supabase's free
+  tier has no restorable backups either, so a **Delete all** (or anyone who finds
+  the URL) is unrecoverable unless someone took a manual backup. He was told
+  this. If he ever reports lost data, that is the first thing to establish.
 - The app has no multi-device conflict handling: two devices editing at once is
   last-write-wins on the whole config blob. Fine for one person; would need
   thought if that ever changes.
