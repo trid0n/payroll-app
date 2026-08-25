@@ -1,0 +1,4 @@
+# This app has no login; keeping it out of search results is the least that
+# can be done about that. See README "Access model".
+User-agent: *
+Disallow: /

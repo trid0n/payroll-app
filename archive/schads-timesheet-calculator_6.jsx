@@ -1,0 +1,3098 @@
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
+import { Sun, Moon, ChevronDown, Upload, Download, Trash2, X, CheckCircle2, Users, Wallet, CalendarDays, FileSpreadsheet, Archive, ExternalLink, Landmark, Plus, Copy, Undo2 } from "lucide-react";
+
+/* =========================================================================
+   CONSTANTS
+   ========================================================================= */
+
+const STORAGE_KEY = "support-beyond-payroll-config-v1";
+
+const DEFAULT_LEVELS = {
+  l21: { label: "Level 2.1", hourly: 45.28, afternoon: 49.8, night: 50.71, saturday: 63.39, sunday: 83, publicHoliday: 99.61, otTier1: 63.39, otTier2: 81.5, flat: false },
+  l22: { label: "Level 2.2", hourly: 46.7, afternoon: 51.37, night: 52.3, saturday: 65.38, sunday: 84.06, publicHoliday: 102.74, otTier1: 65.38, otTier2: 84.06, flat: false },
+  l24: { label: "Level 2.4", hourly: 49.41, afternoon: 54.35, night: 55.34, saturday: 69.18, sunday: 88.94, publicHoliday: 108.71, otTier1: 69.18, otTier2: 88.94, flat: false },
+  custom13: { label: "Custom (1.3)", hourly: 40, afternoon: 40.49, night: 63, saturday: 61, sunday: 83, publicHoliday: 90, otTier1: 51.54, otTier2: 66.26, flat: false },
+  admin: { label: "Admin", hourly: 40, afternoon: 40, night: 40, saturday: 40, sunday: 40, publicHoliday: 40, otTier1: 40, otTier2: 40, flat: true },
+};
+
+const DEFAULT_LEVEL_ORDER = ["l21", "l22", "l24", "custom13", "admin"];
+const RATE_FIELDS = ["hourly", "afternoon", "night", "saturday", "sunday", "publicHoliday", "otTier1", "otTier2"];
+const RATE_FIELD_LABELS = { hourly: "Hourly", afternoon: "Afternoon", night: "Night", saturday: "Saturday", sunday: "Sunday", publicHoliday: "Public holiday", otTier1: "OT <2hrs", otTier2: "OT 2hrs+" };
+
+const AWARD_LEVEL_GUESS = { "2-1": "l21", "2-2": "l22", "2-4": "l24", "1-3": "custom13" };
+
+const DEFAULT_ROSTER = [
+  { id: "donna-bowey", name: "Donna Bowey", level: "l22", flatRateOnly: false, kmYTD: 527 },
+  { id: "melanie-brandon", name: "Melanie Brandon", level: "l24", flatRateOnly: false, kmYTD: 40 },
+  { id: "melanie-j-butler", name: "Melanie J Butler", level: "l22", flatRateOnly: false, kmYTD: 0 },
+  { id: "brytnie-duff", name: "Brytnie Duff", level: "custom13", flatRateOnly: false, kmYTD: 147 },
+  { id: "naomi-duff", name: "Naomi Duff", level: "custom13", flatRateOnly: false, kmYTD: 275 },
+  { id: "michelle-ellis", name: "Michelle Ellis", level: "l21", flatRateOnly: false, kmYTD: 342 },
+  { id: "jake-fowles", name: "Jake Fowles", level: "l21", flatRateOnly: false, kmYTD: 15 },
+  { id: "ena-haley", name: "Ena Haley", level: "l22", flatRateOnly: false, kmYTD: 90 },
+  { id: "tristan-holland", name: "Tristan Holland", level: "l21", flatRateOnly: false, kmYTD: 734 },
+  { id: "julie-marsden", name: "Julie Marsden", level: "l22", flatRateOnly: false, kmYTD: 0 },
+  { id: "cherie-parnell", name: "Cherie Parnell", level: "l21", flatRateOnly: false, kmYTD: 304 },
+  { id: "jody-wadley", name: "Jody Wadley", level: "l21", flatRateOnly: true, kmYTD: 0 },
+  { id: "karren-web", name: "Karren Web", level: "l21", flatRateOnly: false, kmYTD: 0 },
+  { id: "faith-winfield", name: "Faith Winfield", level: "admin", flatRateOnly: false, kmYTD: 0 },
+];
+
+const DEFAULT_ALIASES = {
+  "ethan fowles": "jake-fowles",
+  "tristen": "tristan-holland",
+  "karen webb": "karren-web",
+  "mj butler": "melanie-j-butler",
+  "melanie brandan": "melanie-brandon",
+  "jodey wadly": "jody-wadley",
+};
+
+const DEFAULT_KM_SETTINGS = { underTaxable: 0.08, underExempt: 0.91, overExempt: 0.99, threshold: 5000 };
+const DEFAULT_ALLOWANCES = { break1: 20.82, break2: 27.56, sleepover: 60.02 };
+
+const DEFAULT_HOLIDAYS = [
+  { date: "2026-01-01", name: "New Year's Day" },
+  { date: "2026-01-26", name: "Australia Day" },
+  { date: "2026-03-09", name: "Labour Day" },
+  { date: "2026-04-03", name: "Good Friday" },
+  { date: "2026-04-04", name: "Easter Saturday" },
+  { date: "2026-04-05", name: "Easter Sunday" },
+  { date: "2026-04-06", name: "Easter Monday" },
+  { date: "2026-04-25", name: "Anzac Day" },
+  { date: "2026-06-08", name: "King's Birthday" },
+  { date: "2026-09-25", name: "Friday before AFL Grand Final" },
+  { date: "2026-11-03", name: "Melbourne Cup Day" },
+  { date: "2026-12-25", name: "Christmas Day" },
+  { date: "2026-12-26", name: "Boxing Day" },
+  { date: "2026-12-28", name: "Boxing Day (additional)" },
+];
+
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const DAY_TYPE_SHORT = { weekday: "weekday", afternoon: "afternoon", night: "night", saturday: "Saturday", sunday: "Sunday", publicHoliday: "Public holiday" };
+const DAY_TYPES = ["weekday", "afternoon", "night", "saturday", "sunday", "publicHoliday"];
+const EVENING_THRESHOLD_MIN = 20 * 60;
+const MIDNIGHT_MIN = 24 * 60;
+const HEADER_TEXT = "#ECF1FA";
+const HEADER_EYEBROW = "#9CC4EC";
+const VIC_HOLIDAYS_URL = "https://business.vic.gov.au/business-information/public-holidays/victorian-public-holidays-2026";
+
+const NAV_ITEMS = [
+  { id: "sec-import", label: "Import" },
+  { id: "sec-committed", label: "Km's History" },
+  { id: "sec-roster", label: "Employee Rates" },
+  { id: "sec-rates", label: "Rates" },
+  { id: "sec-award", label: "Award update" },
+];
+
+/* =========================================================================
+   GENERAL HELPERS
+   ========================================================================= */
+
+function cleanVal(v) { if (v == null) return ""; return String(v).replace(/^'/, "").trim(); }
+function slugify(name) { return cleanVal(name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""); }
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function parseDuration(v) {
+  const s = cleanVal(v);
+  if (!s || s === "-") return 0;
+  const full = s.match(/(\d+)\s*h\s*(\d+)\s*m/i);
+  if (full) return parseInt(full[1], 10) + parseInt(full[2], 10) / 60;
+  const hOnly = s.match(/(\d+)\s*h/i);
+  const mOnly = s.match(/(\d+)\s*m/i);
+  if (hOnly || mOnly) { const h = hOnly ? parseInt(hOnly[1], 10) : 0; const m = mOnly ? parseInt(mOnly[1], 10) : 0; return h + m / 60; }
+  const n = parseFloat(s);
+  return isNaN(n) ? 0 : n;
+}
+function toISODate(dateStr) {
+  const s = cleanVal(dateStr);
+  const parts = s.split("/");
+  if (parts.length !== 3) return null;
+  const mo = parseInt(parts[0], 10), da = parseInt(parts[1], 10), yr = parseInt(parts[2], 10);
+  if (!mo || !da || !yr) return null;
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${yr}-${pad(mo)}-${pad(da)}`;
+}
+function dayNameFromISO(iso) {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  return ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][dt.getDay()];
+}
+function addDaysISO(iso, days) {
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + days);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
+}
+// Truncates (never rounds) to 2 decimal places, per how the business wants
+// hours reported — 3.698 stays 3.69, it never bumps to 3.70. The tiny
+// epsilon guards against floating-point artifacts like 3.6899999999.
+function truncate2(n) {
+  return Math.floor((n + 1e-9) * 100) / 100;
+}
+function parseTimeToMinutes(v) {
+  const s = cleanVal(v);
+  if (!s) return null;
+  const m = s.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+  if (!m) return null;
+  let hour = parseInt(m[1], 10);
+  const min = parseInt(m[2], 10);
+  const ap = m[3].toUpperCase();
+  if (ap === "PM" && hour !== 12) hour += 12;
+  if (ap === "AM" && hour === 12) hour = 0;
+  return hour * 60 + min;
+}
+function money(n) { return (n || 0).toLocaleString("en-AU", { style: "currency", currency: "AUD" }); }
+
+// A File System directory handle can't go in localStorage (not JSON-safe),
+// but IndexedDB supports structured clone, so it can persist there across
+// sessions — meaning "choose a backup folder" only has to happen once.
+function idbOpen() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open("sb-backup-db", 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("handles");
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbSet(key, val) {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("handles", "readwrite");
+    tx.objectStore("handles").put(val, key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function idbGet(key) {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("handles", "readonly");
+    const req = tx.objectStore("handles").get(key);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/* =========================================================================
+   Minimal ZIP writer (STORE method — no compression needed for this use
+   case). No library available for this, so it's hand-built the same way
+   the PDF export is — validated against Python's zipfile module and the
+   standard unzip CLI before use.
+   ========================================================================= */
+function crc32(bytes) {
+  if (!crc32.table) {
+    const t = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      t[n] = c >>> 0;
+    }
+    crc32.table = t;
+  }
+  let crc = 0xffffffff;
+  for (let i = 0; i < bytes.length; i++) crc = crc32.table[(crc ^ bytes[i]) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+}
+function zu16(v) { return [v & 0xff, (v >>> 8) & 0xff]; }
+function zu32(v) { return [v & 0xff, (v >>> 8) & 0xff, (v >>> 16) & 0xff, (v >>> 24) & 0xff]; }
+function dosDateTime(date) {
+  const time = ((date.getHours() & 0x1f) << 11) | ((date.getMinutes() & 0x3f) << 5) | ((date.getSeconds() >> 1) & 0x1f);
+  const dt = (((date.getFullYear() - 1980) & 0x7f) << 9) | (((date.getMonth() + 1) & 0xf) << 5) | (date.getDate() & 0x1f);
+  return { time, dt };
+}
+function buildZip(files) {
+  const encoder = new TextEncoder();
+  const { time, dt } = dosDateTime(new Date());
+  const localParts = [], centralParts = [];
+  let offset = 0;
+  for (const f of files) {
+    const nameBytes = encoder.encode(f.name);
+    const data = f.data;
+    const crc = crc32(data);
+    const size = data.length;
+    const localHeader = new Uint8Array([
+      0x50, 0x4b, 0x03, 0x04, ...zu16(20), ...zu16(0x0800), ...zu16(0),
+      ...zu16(time), ...zu16(dt), ...zu32(crc), ...zu32(size), ...zu32(size),
+      ...zu16(nameBytes.length), ...zu16(0),
+    ]);
+    localParts.push(localHeader, nameBytes, data);
+    const centralHeader = new Uint8Array([
+      0x50, 0x4b, 0x01, 0x02, ...zu16(20), ...zu16(20), ...zu16(0x0800), ...zu16(0),
+      ...zu16(time), ...zu16(dt), ...zu32(crc), ...zu32(size), ...zu32(size),
+      ...zu16(nameBytes.length), ...zu16(0), ...zu16(0), ...zu16(0), ...zu16(0), ...zu32(0), ...zu32(offset),
+    ]);
+    centralParts.push(centralHeader, nameBytes);
+    offset += localHeader.length + nameBytes.length + data.length;
+  }
+  const centralStart = offset;
+  let centralSize = 0;
+  for (const p of centralParts) centralSize += p.length;
+  const eocd = new Uint8Array([
+    0x50, 0x4b, 0x05, 0x06, ...zu16(0), ...zu16(0), ...zu16(files.length), ...zu16(files.length),
+    ...zu32(centralSize), ...zu32(centralStart), ...zu16(0),
+  ]);
+  const allParts = [...localParts, ...centralParts, eocd];
+  let totalLen = 0;
+  for (const p of allParts) totalLen += p.length;
+  const out = new Uint8Array(totalLen);
+  let pos = 0;
+  for (const p of allParts) { out.set(p, pos); pos += p.length; }
+  return out;
+}
+function minutesToTimeStr(min) {
+  if (min == null) return "";
+  const m = ((min % 1440) + 1440) % 1440;
+  let h = Math.floor(m / 60);
+  const mm = m % 60;
+  const ap = h >= 12 ? "PM" : "AM";
+  h = h % 12;
+  if (h === 0) h = 12;
+  return `${h}:${String(mm).padStart(2, "0")} ${ap}`;
+}
+function formatDateSmart(dateISO, dayName) {
+  if (!dateISO) return dayName || "—";
+  const [, m, d] = dateISO.split("-").map(Number);
+  const shortMonth = MONTH_NAMES[m - 1] ? MONTH_NAMES[m - 1].slice(0, 3) : "";
+  const shortDay = (dayName || "").slice(0, 3);
+  return `${shortDay} ${d} ${shortMonth}`;
+}
+
+/* =========================================================================
+   CSV PARSING
+   ========================================================================= */
+
+function parseCSVRows(text) {
+  const rows = []; let row = []; let cur = ""; let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else inQuotes = false; } else cur += c;
+    } else {
+      if (c === '"') inQuotes = true;
+      else if (c === ",") { row.push(cur); cur = ""; }
+      else if (c === "\n") { row.push(cur); cur = ""; rows.push(row); row = []; }
+      else if (c === "\r") { /* skip */ }
+      else cur += c;
+    }
+  }
+  if (cur.length || row.length) { row.push(cur); rows.push(row); }
+  return rows.filter((r) => r.length > 1 || (r[0] && r[0].trim()));
+}
+
+function detectFormat(headerRow) {
+  const header = headerRow.map((h) => cleanVal(h).toLowerCase());
+  if (header.includes("entrytype")) return "timeEntries";
+  if (header.includes("payroll hours")) return "dailyRaw";
+  return null;
+}
+
+// Each In->Out pair (or standalone "Hours" adjustment row) becomes its own
+// segment, rather than merging every entry for a day into one block. That
+// merge was the bug behind Donna's numbers looking wrong — a broken shift
+// with a morning block and an evening block got treated as one long evening
+// shift because the day's *last* clock-out was after 8pm.
+function parseTimeEntriesRows(rows) {
+  const header = rows[0].map((h) => cleanVal(h));
+  const idx = (name) => header.findIndex((h) => h.toLowerCase() === name.toLowerCase());
+  const dateIdx = idx("Date"), nameIdx = idx("Full Name"), codeIdx = idx("Member Code");
+  const typeIdx = idx("EntryType"), timeIdx = idx("Time"), durIdx = idx("Duration"), notesIdx = idx("Notes");
+
+  const segments = [];
+  const open = {};
+  let skipped = 0;
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    const name = cleanVal(r[nameIdx]);
+    if (!name) { skipped++; continue; }
+    const code = codeIdx !== -1 ? cleanVal(r[codeIdx]) : "";
+    const empKey = code || name;
+    const dateISO = toISODate(r[dateIdx]);
+    const dateRaw = cleanVal(r[dateIdx]);
+    const day = dayNameFromISO(dateISO);
+    const entryType = cleanVal(r[typeIdx]);
+    const note = notesIdx !== -1 ? cleanVal(r[notesIdx]) : "";
+
+    if (entryType === "In") {
+      if (open[empKey]) segments.push(open[empKey]); // defensively close a dangling one
+      open[empKey] = { key: empKey, name, code, dateISO, dateRaw, day, hours: parseDuration(r[durIdx]), firstInMin: parseTimeToMinutes(r[timeIdx]), lastOutMin: null, notes: note ? [note] : [] };
+    } else if (entryType === "Out") {
+      const t = parseTimeToMinutes(r[timeIdx]);
+      if (open[empKey]) {
+        open[empKey].lastOutMin = t;
+        if (note) open[empKey].notes.push(note);
+        segments.push(open[empKey]);
+        delete open[empKey];
+      } else {
+        skipped++;
+      }
+    } else if (entryType === "Hours") {
+      segments.push({ key: empKey, name, code, dateISO, dateRaw, day, hours: parseDuration(r[durIdx]), firstInMin: null, lastOutMin: null, notes: note ? [note] : [] });
+    }
+  }
+  for (const k of Object.keys(open)) segments.push(open[k]);
+  const shifts = segments.filter((s) => s.hours > 0);
+  return { shifts, skipped, format: "timeEntries" };
+}
+
+function parseDailyRawRows(rows) {
+  const header = rows[0].map((h) => cleanVal(h));
+  const idx = (name) => header.findIndex((h) => h.toLowerCase() === name.toLowerCase());
+  const dayIdx = idx("Day"), dateIdx = idx("Date"), nameIdx = idx("Full Name"), codeIdx = idx("Member Code");
+  const payrollIdx = idx("Payroll Hours"), workedIdx = idx("Worked Hours"), firstInIdx = idx("First In"), lastOutIdx = idx("Last Out");
+  const shifts = []; let skipped = 0;
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    const name = cleanVal(r[nameIdx]);
+    if (!name) { skipped++; continue; }
+    const code = codeIdx !== -1 ? cleanVal(r[codeIdx]) : "";
+    const dateRaw = cleanVal(r[dateIdx]);
+    const dateISO = toISODate(dateRaw);
+    let hoursRaw = payrollIdx !== -1 ? cleanVal(r[payrollIdx]) : "";
+    if (!hoursRaw || hoursRaw === "-") hoursRaw = workedIdx !== -1 ? cleanVal(r[workedIdx]) : "";
+    const hours = parseDuration(hoursRaw);
+    if (hours <= 0) continue;
+    shifts.push({ key: code || name, name, code, dateISO, dateRaw, day: dayIdx !== -1 ? cleanVal(r[dayIdx]) : dayNameFromISO(dateISO), hours, firstInMin: firstInIdx !== -1 ? parseTimeToMinutes(r[firstInIdx]) : null, lastOutMin: lastOutIdx !== -1 ? parseTimeToMinutes(r[lastOutIdx]) : null, notes: [] });
+  }
+  return { shifts, skipped, format: "dailyRaw" };
+}
+
+function parseJibbleCSV(text) {
+  const rows = parseCSVRows(text);
+  if (rows.length < 2) return { shifts: [], error: "No data rows found in that CSV." };
+  const format = detectFormat(rows[0]);
+  if (format === "timeEntries") return { ...parseTimeEntriesRows(rows), error: null };
+  if (format === "dailyRaw") return { ...parseDailyRawRows(rows), error: null };
+  return { shifts: [], error: "Couldn't recognise this CSV — export a Jibble Time Entries report and try again." };
+}
+
+/* note extraction: km, breaks, sleepovers -------------------------------- */
+
+function extractKm(notes) {
+  const joined = notes.join(" | ");
+  const re = /(\d+(?:\.\d+)?)\s*k\s*[nm]s?\b/gi;
+  let m; let total = 0; const matches = [];
+  while ((m = re.exec(joined))) { total += parseFloat(m[1]); matches.push(m[0].trim()); }
+  return { total, matches };
+}
+
+// Catches numbers in a note that AREN'T already a confident km match or part
+// of a break claim — e.g. "Sabine 138" or a typo'd unit. These aren't
+// auto-added; they're surfaced for the user to approve or dismiss, since a
+// bare number could be almost anything.
+function extractKmCandidates(notes) {
+  const kmRe = /\d+(?:\.\d+)?\s*k\s*[nm]s?\b/gi;
+  const breakRe = /\d+\s*breaks?\s*(?:@|at)\s*\$?\d+(?:\.\d+)?/gi;
+  const candidates = [];
+  notes.forEach((note, noteIdx) => {
+    const consumed = [];
+    let m;
+    kmRe.lastIndex = 0;
+    while ((m = kmRe.exec(note))) consumed.push([m.index, m.index + m[0].length]);
+    breakRe.lastIndex = 0;
+    while ((m = breakRe.exec(note))) consumed.push([m.index, m.index + m[0].length]);
+    const numRe = /\b\d+(?:\.\d+)?\b/g;
+    let nm;
+    while ((nm = numRe.exec(note))) {
+      const s = nm.index, e = nm.index + nm[0].length;
+      const overlap = consumed.some(([cs, ce]) => s < ce && e > cs);
+      if (!overlap) candidates.push({ note, value: parseFloat(nm[0]), start: s, noteIdx });
+    }
+  });
+  return candidates;
+}
+
+function extractBreakClaims(notes, allowances) {
+  const joined = notes.join(" | ");
+  const re = /(\d+)\s*breaks?\s*(?:@|at)\s*\$?(\d+(?:\.\d+)?)/gi;
+  let m; const matches = []; let count1 = 0; let count2 = 0;
+  while ((m = re.exec(joined))) {
+    const n = parseInt(m[1], 10);
+    const noteAmt = parseFloat(m[2]);
+    const d1 = Math.abs(noteAmt - (allowances.break1 || 0));
+    const d2 = Math.abs(noteAmt - (allowances.break2 || 0));
+    if (d2 < d1) count2 += n; else count1 += n;
+    matches.push(m[0].trim());
+  }
+  const amount = count1 * (allowances.break1 || 0) + count2 * (allowances.break2 || 0);
+  return { count1, count2, count: count1 + count2, amount, matches };
+}
+
+function extractSleepovers(notes) {
+  const re = /sleepover|slept\s*over|overnight\s*stay/i;
+  const quotes = [];
+  for (const n of notes) {
+    if (re.test(n)) quotes.push(n.trim().replace(/\s+/g, " "));
+  }
+  return { count: quotes.length, quotes };
+}
+
+/* =========================================================================
+   PAYROLLER CROSS-CHECK — parses pasted text from a Payroller pay-run
+   export (one or more concatenated payslips) so it can be compared against
+   what this app worked out from the Jibble CSV for the same week.
+   ========================================================================= */
+function matchNameToRoster(name, roster, aliases) {
+  const norm = cleanVal(name).toLowerCase().trim();
+  if (aliases[norm]) {
+    const found = roster.find((r) => r.id === aliases[norm]);
+    if (found) return found;
+  }
+  const exact = roster.find((r) => r.name.toLowerCase().trim() === norm);
+  if (exact) return exact;
+  const slug = slugify(name);
+  const bySlug = roster.find((r) => slugify(r.name) === slug);
+  if (bySlug) return bySlug;
+  const firstWord = norm.split(/\s+/)[0];
+  if (firstWord && aliases[firstWord]) {
+    const found = roster.find((r) => r.id === aliases[firstWord]);
+    if (found) return found;
+  }
+  return null;
+}
+
+function parsePayrollerText(text) {
+  const blocks = text.split(/(?=Name:\s*[A-Za-z])/).filter((b) => /Period Starting/.test(b));
+  return blocks.map((block) => {
+    const nameMatch = block.match(/Name:\s*([A-Za-z .'\-]+?)\s*(?:Period Starting|Address:)/);
+    const name = nameMatch ? nameMatch[1].trim() : "Unknown";
+    const grab = (re) => { const m = block.match(re); return m ? parseFloat(m[1]) : 0; };
+    const weekday = grab(/Ordinary Hours(?!\s*-)\s+([\d.]+)\s+\$/);
+    const afternoon = grab(/Ordinary Hours - Afternoon\s+([\d.]+)\s+\$/i);
+    const night = grab(/Ordinary Hours - Night\s+([\d.]+)\s+\$/i);
+    const saturday = grab(/Ordinary Hours - Saturday\s+([\d.]+)\s+\$/i);
+    const sunday = grab(/Ordinary Hours - Sunday\s+([\d.]+)\s+\$/i);
+    const publicHoliday = grab(/Ordinary Hours - Public [Hh]oliday\s+([\d.]+)\s+\$/i);
+    const otTier1 = grab(/Ordinary Hours - Overtime under 2\s*hrs\s+([\d.]+)\s+\$/i);
+    const otTier2 = grab(/Ordinary Hours - Overtime over 2\s*hrs\s+([\d.]+)\s+\$/i);
+    const higherRate = grab(/Ordinary Hours - [Hh]igher rate\s+([\d.]+)\s+\$/);
+    const kmMatches = [...block.matchAll(/Cents per KM\s+(\d+)\s+\$/g)].map((m) => parseInt(m[1], 10));
+    const km = kmMatches.length ? Math.max(...kmMatches) : 0;
+    const otherMatches = [...block.matchAll(/Other - General\s+(\d+)\s+\$/g)].map((m) => parseInt(m[1], 10));
+    const otherAllowanceUnits = otherMatches.length ? Math.max(...otherMatches) : 0;
+    const total = weekday + afternoon + night + saturday + sunday + publicHoliday + otTier1 + otTier2 + higherRate;
+    return { name, weekday, afternoon, night, saturday, sunday, publicHoliday, otTier1, otTier2, higherRate, total, km, otherAllowanceUnits };
+  });
+}
+
+/* =========================================================================
+   DAY-TYPE + OVERTIME ENGINE
+   ========================================================================= */
+
+function baseDayType(shift, holidaySet) {
+  if (shift.dateISO && holidaySet.has(shift.dateISO)) return "publicHoliday";
+  if (shift.day === "Saturday") return "saturday";
+  if (shift.day === "Sunday") return "sunday";
+  return "weekday";
+}
+
+// Splits one shift segment's hours across the actual pay-rate windows it
+// overlaps — but only on a weekday. Afternoon/night loadings are a
+// Monday-Friday concept; Saturday, Sunday and public holiday shifts keep
+// their full day rate for every hour worked, with no 8pm/12am carve-out.
+// On a weekday: before 8pm = weekday rate, 8pm-12am = afternoon, 12am-8am =
+// night, and anything still running past 8am rolls onto the *next* day's
+// own base rate. Hours are scaled against the segment's real recorded
+// duration so the parts always add back up to exactly the original total.
+function splitSegmentByWindow(shift, holidaySet) {
+  const baseType = baseDayType(shift, holidaySet);
+  if (baseType !== "weekday") {
+    return [{ dayType: baseType, hours: shift.hours, dateISO: shift.dateISO }];
+  }
+  if (shift.firstInMin == null || shift.lastOutMin == null || shift.hours <= 0) {
+    return [{ dayType: baseType, hours: shift.hours, dateISO: shift.dateISO }];
+  }
+  let start = shift.firstInMin;
+  let end = shift.lastOutMin;
+  if (end <= start) end += 1440;
+  const span = end - start;
+  if (span <= 0) return [{ dayType: baseType, hours: shift.hours, dateISO: shift.dateISO }];
+  const scale = shift.hours / (span / 60);
+
+  const windows = [
+    { from: 0, to: 1200, type: baseType },
+    { from: 1200, to: 1440, type: "afternoon" },
+    { from: 1440, to: 1920, type: "night" },
+    { from: 1920, to: 2880, type: "nextday" },
+  ];
+  const parts = [];
+  for (const w of windows) {
+    const os = Math.max(start, w.from), oe = Math.min(end, w.to);
+    if (oe > os) {
+      const hours = ((oe - os) / 60) * scale;
+      let type = w.type;
+      if (type === "nextday") {
+        const nextISO = addDaysISO(shift.dateISO, 1);
+        if (holidaySet.has(nextISO)) type = "publicHoliday";
+        else {
+          const nd = dayNameFromISO(nextISO);
+          type = nd === "Saturday" ? "saturday" : nd === "Sunday" ? "sunday" : "weekday";
+        }
+      }
+      parts.push({ dayType: type, hours, dateISO: shift.dateISO });
+    }
+  }
+  return parts.length ? parts : [{ dayType: baseType, hours: shift.hours, dateISO: shift.dateISO }];
+}
+
+// Splits every segment by pay window first, then works out overtime as two
+// independent checks against the *raw* (untrimmed) hours — daily (>10hrs on
+// any Mon-Fri day) and weekly (>38hrs across the whole Mon-Sat pool, with
+// Saturday counted toward the pool but never itself reduced). Whichever
+// check produces the larger OT figure is the one that actually governs the
+// week (this matches real payslips: a small daily breach that's covered by
+// the weekly figure doesn't "stack" on top of it). When the weekly check
+// governs, the OT hours come out of weekday hours only, leaving afternoon/
+// night loading untouched. When only the daily check triggers, that day's
+// own excess comes out of that day's own hours (night, then afternoon, then
+// weekday) — matching how a single evening-finishing long day behaves on
+// an actual payslip.
+function computeWeekBuckets(shiftsForWeek, holidaySet, { skipOvertime }) {
+  const subparts = [];
+  for (const s of shiftsForWeek) subparts.push(...splitSegmentByWindow(s, holidaySet));
+
+  const buckets = { weekday: 0, afternoon: 0, night: 0, saturday: 0, sunday: 0, publicHoliday: 0 };
+  if (skipOvertime) {
+    for (const p of subparts) buckets[p.dayType] += p.hours;
+    return { ...buckets, otTier1: 0, otTier2: 0 };
+  }
+
+  const byDate = {};
+  for (const p of subparts) { const k = p.dateISO; if (!byDate[k]) byDate[k] = []; byDate[k].push(p); }
+
+  const dayRecords = [];
+  const satDayTotals = {};
+  for (const dateKey of Object.keys(byDate)) {
+    const parts = byDate[dateKey];
+    for (const p of parts) {
+      if (p.dayType === "sunday" || p.dayType === "publicHoliday" || p.dayType === "saturday") {
+        buckets[p.dayType] += p.hours;
+        if (p.dayType === "saturday") satDayTotals[dateKey] = (satDayTotals[dateKey] || 0) + p.hours;
+      }
+    }
+    const eligible = parts.filter((p) => p.dayType === "weekday" || p.dayType === "afternoon" || p.dayType === "night");
+    if (eligible.length === 0) continue;
+    const rec = { weekday: 0, afternoon: 0, night: 0 };
+    for (const p of eligible) rec[p.dayType] += p.hours;
+    rec.excess = Math.max(0, rec.weekday + rec.afternoon + rec.night - 10);
+    dayRecords.push(rec);
+  }
+
+  // Saturday has its own overtime point at 12 hours, not 10 — hours 10-12
+  // are still paid at the plain Saturday rate (no "under 2hrs" OT tier for
+  // Saturday), and only the portion past 12 hours becomes overtime, charged
+  // straight at the over-2hrs rate with no grace tier of its own.
+  const saturdayOT = Object.values(satDayTotals).reduce((a, total) => a + Math.max(0, total - 12), 0);
+  buckets.saturday -= saturdayOT;
+
+  const dailyExcessSum = dayRecords.reduce((a, r) => a + r.excess, 0);
+  const weekdaySumRaw = dayRecords.reduce((a, r) => a + r.weekday, 0);
+  const afternoonSumRaw = dayRecords.reduce((a, r) => a + r.afternoon, 0);
+  const nightSumRaw = dayRecords.reduce((a, r) => a + r.night, 0);
+  const weeklyPool = weekdaySumRaw + afternoonSumRaw + nightSumRaw + buckets.saturday;
+  const weeklyExcess = Math.max(0, weeklyPool - 38);
+  const totalOT = Math.max(dailyExcessSum, weeklyExcess);
+
+  if (weeklyExcess >= dailyExcessSum) {
+    buckets.weekday = Math.max(0, weekdaySumRaw - totalOT);
+    buckets.afternoon = afternoonSumRaw;
+    buckets.night = nightSumRaw;
+  } else {
+    let wd = 0, aft = 0, night = 0;
+    for (const rec of dayRecords) {
+      let remaining = rec.excess;
+      const local = { weekday: rec.weekday, afternoon: rec.afternoon, night: rec.night };
+      for (const cat of ["night", "afternoon", "weekday"]) {
+        const take = Math.min(remaining, local[cat]);
+        local[cat] -= take; remaining -= take;
+        if (remaining <= 0) break;
+      }
+      wd += local.weekday; aft += local.afternoon; night += local.night;
+    }
+    buckets.weekday = wd; buckets.afternoon = aft; buckets.night = night;
+  }
+
+  return { ...buckets, otTier1: Math.min(2, totalOT), otTier2: Math.max(0, totalOT - 2) + saturdayOT };
+}
+
+/* =========================================================================
+   AWARD PAY-SUMMARY TEXT PARSER
+   ========================================================================= */
+
+function parseAwardText(text) {
+  const grab = (re) => { const m = text.match(re); return m ? parseFloat(m[1]) : null; };
+  const grabLast = (re) => { const matches = [...text.matchAll(re)]; return matches.length ? parseFloat(matches[matches.length - 1][1]) : null; };
+  const levelMatch = text.match(/level\s*(\d+)\s*-\s*pay point\s*(\d+)/i);
+  const rates = {
+    hourly: grab(/Hourly Pay Rate:\s*\$?([\d.]+)/i),
+    saturday: grab(/Saturday\s*\$?([\d.]+)\s*per hour/i),
+    sunday: grab(/Sunday\s*\$?([\d.]+)\s*per hour/i),
+    afternoon: grab(/Afternoon shift[^$]*\$?([\d.]+)\s*per hour/i),
+    night: grab(/Night shift[^$]*\$?([\d.]+)\s*per hour/i),
+    publicHoliday: grabLast(/Public holiday\s*\$?([\d.]+)\s*per hour/gi),
+    otTier1: grab(/Overtime\s*-\s*Monday to Saturday\s*-\s*first 2 hours\s*\$?([\d.]+)\s*per hour/i),
+    otTier2: grab(/Overtime\s*-\s*Monday to Saturday\s*-\s*after 2 hours\s*\$?([\d.]+)\s*per hour/i),
+  };
+  const brokenShift = grab(/Broken shift allowance\s*\$?([\d.]+)\s*per broken shift/i);
+  const levelLabel = levelMatch ? `Level ${levelMatch[1]}.${levelMatch[2]}` : null;
+  const levelKeyGuess = levelMatch ? AWARD_LEVEL_GUESS[`${levelMatch[1]}-${levelMatch[2]}`] || "" : "";
+  const found = Object.values(rates).some((v) => v != null) || brokenShift != null;
+  return { rates, brokenShift, levelLabel, levelKeyGuess, found };
+}
+
+/* =========================================================================
+   PUBLIC HOLIDAY BULK-PASTE PARSER
+   ========================================================================= */
+
+function parseHolidayText(text, defaultYear) {
+  const lines = text.split(/\n/).map((l) => l.trim()).filter(Boolean);
+  const monthNames = "January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec";
+  const weekdayLead = "(?:(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*\\.?,?\\s+)?";
+  const dateRe = new RegExp(weekdayLead + "(\\d{1,2})(?:st|nd|rd|th)?\\s+(" + monthNames + ")\\.?\\s*,?\\s*(\\d{4})?", "i");
+  const monthMap = { january: 1, jan: 1, february: 2, feb: 2, march: 3, mar: 3, april: 4, apr: 4, may: 5, june: 6, jun: 6, july: 7, jul: 7, august: 8, aug: 8, september: 9, sep: 9, sept: 9, october: 10, oct: 10, november: 11, nov: 11, december: 12, dec: 12 };
+  const results = [];
+  for (const line of lines) {
+    const m = line.match(dateRe);
+    if (!m) continue;
+    const day = parseInt(m[1], 10);
+    const month = monthMap[m[2].toLowerCase()];
+    const year = m[3] ? parseInt(m[3], 10) : defaultYear;
+    if (!month || !year) continue;
+    const pad = (n) => String(n).padStart(2, "0");
+    const iso = `${year}-${pad(month)}-${pad(day)}`;
+    let name = line.replace(m[0], "\t").split("\t").map((s) => s.replace(/^[\s,\-:–—|]+|[\s,\-:–—|]+$/g, "").trim()).filter(Boolean).join(" ").trim();
+    if (!name) name = "Public holiday";
+    results.push({ date: iso, name });
+  }
+  return results;
+}
+
+/* =========================================================================
+   THEME
+   ========================================================================= */
+
+const T_DARK = {
+  page: "#070A10", header: "#0A0F1A", card: "#141B29", cardBorder: "#2C394E", divider: "#253144",
+  text: "#EEF1F7", textDim: "#A6B4C7", textFaint: "#7C8CA3",
+  accent: "#5B9BFF", accentSoft: "#1B2A44", accentContrastText: "#FFFFFF",
+  warn: "#F0A177", warnSoft: "#33221A", good: "#5B9BFF",
+  missingPayroller: "#E2B84E", missingPayrollerSoft: "#332B18",
+  missingJibble: "#E2708A", missingJibbleSoft: "#331F26",
+  inputBg: "#161F30", inputBorder: "#3A4C68", rowStripe: "rgba(255,255,255,0.035)", rowHover: "rgba(91,155,255,0.12)",
+};
+const T_LIGHT = {
+  page: "#F7F9FC", header: "#1B3A63", card: "#FFFFFF", cardBorder: "#DCE3EE", divider: "#EDF1F7",
+  text: "#1A2433", textDim: "#5B6B82", textFaint: "#8A96A8",
+  accent: "#2A5FA8", accentSoft: "#EAF1FB", accentContrastText: "#FFFFFF",
+  warn: "#B5502E", warnSoft: "#FCEFE6", good: "#2A5FA8",
+  missingPayroller: "#9A7A17", missingPayrollerSoft: "#FBF3DE",
+  missingJibble: "#B23A56", missingJibbleSoft: "#FBEAEE",
+  inputBg: "#FFFFFF", inputBorder: "#D3DCE8", rowStripe: "rgba(27,58,99,0.025)", rowHover: "rgba(42,95,168,0.06)",
+};
+
+function makeStyles(T) {
+  return {
+    cardStyle: { background: T.card, border: `1px solid ${T.cardBorder}`, borderRadius: 16, padding: "22px 24px", boxShadow: "0 1px 2px rgba(0,0,0,0.25)" },
+    btnPrimary: { display: "inline-flex", alignItems: "center", gap: 7, background: T.accent, color: T.accentContrastText, border: "none", borderRadius: 9, padding: "10px 18px", fontSize: 13.5, fontWeight: 700, cursor: "pointer" },
+    btnSecondary: { display: "inline-flex", alignItems: "center", gap: 7, background: T.accentSoft, color: T.text, border: `1px solid ${T.cardBorder}`, borderRadius: 9, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" },
+    btnGhost: { display: "inline-flex", alignItems: "center", gap: 5, background: "transparent", color: T.accent, border: "none", fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: 0 },
+    iconLinkStyle: { display: "inline-flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", color: T.warn, fontSize: 12.5, fontWeight: 600, padding: "3px 6px", borderRadius: 6 },
+    inputStyle: { border: `1px solid ${T.inputBorder}`, borderRadius: 7, padding: "6px 9px", fontSize: 13, background: T.inputBg, color: T.text },
+    tableStyle: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
+    thStyle: { textAlign: "left", padding: "8px 9px", borderBottom: `2px solid ${T.divider}`, color: T.textDim, fontWeight: 600, fontSize: 11.5 },
+    tdStyle: { padding: "8px 9px", borderBottom: `1px solid ${T.divider}`, color: T.text },
+    badgeStyle: { marginLeft: 8, fontSize: 10, background: T.warnSoft, color: T.warn, borderRadius: 999, padding: "2px 7px", fontWeight: 600 },
+    chipStyle: { fontSize: 10.5, background: T.accentSoft, color: T.textDim, borderRadius: 999, padding: "3px 8px", fontWeight: 600 },
+    monthCardStyle: { background: T.accentSoft, border: `1px solid ${T.divider}`, borderRadius: 12, padding: "10px 12px" },
+    monthHeaderStyle: { fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: T.textDim, marginBottom: 6, borderBottom: `1px solid ${T.divider}`, paddingBottom: 4 },
+    holidayRowStyle: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "2px 0" },
+    holidayXStyle: { width: 24, height: 24, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", cursor: "pointer", color: T.warn },
+    quoteStyle: { fontSize: 10.5, color: T.textDim, fontStyle: "italic", marginTop: 3, maxWidth: 220, lineHeight: 1.4 },
+    confirmBoxStyle: { marginTop: 12, fontSize: 13, background: T.accentSoft, border: `1px solid ${T.cardBorder}`, borderRadius: 10, padding: "10px 12px" },
+  };
+}
+
+/* =========================================================================
+   MAIN COMPONENT
+   ========================================================================= */
+
+export default function App() {
+  const [themeMode, setThemeMode] = useState("dark");
+  const T = themeMode === "light" ? T_LIGHT : T_DARK;
+  const S = useMemo(() => makeStyles(T), [themeMode]);
+
+  const [levels, setLevels] = useState(DEFAULT_LEVELS);
+  const [levelOrder, setLevelOrder] = useState(DEFAULT_LEVEL_ORDER);
+  const [roster, setRoster] = useState(DEFAULT_ROSTER);
+  const [aliases, setAliases] = useState(DEFAULT_ALIASES);
+  const [holidays, setHolidays] = useState(DEFAULT_HOLIDAYS);
+  const [kmSettings, setKmSettings] = useState(DEFAULT_KM_SETTINGS);
+  const [allowances, setAllowances] = useState(DEFAULT_ALLOWANCES);
+  const [committedSheets, setCommittedSheets] = useState([]);
+
+  const [shifts, setShifts] = useState([]);
+  const [csvFormat, setCsvFormat] = useState(null);
+  const [fileName, setFileName] = useState("");
+  const [parseMsg, setParseMsg] = useState("");
+  const [parseOk, setParseOk] = useState(true);
+  const [mapping, setMapping] = useState({});
+  const [weeklyKmOverride, setWeeklyKmOverride] = useState({});
+  const [hourOverride, setHourOverride] = useState({});
+  const [breakOverride, setBreakOverride] = useState({});
+  const [sleepoverOverride, setSleepoverOverride] = useState({});
+  const [expandedSleepNotes, setExpandedSleepNotes] = useState({});
+  const [confirmKmReset, setConfirmKmReset] = useState(false);
+  const [confirmDeleteAllSheets, setConfirmDeleteAllSheets] = useState(false);
+  const [newLevelName, setNewLevelName] = useState("");
+  const [expandedShiftDetail, setExpandedShiftDetail] = useState({});
+  const [payrollerPasteText, setPayrollerPasteText] = useState("");
+  const [payrollerComparison, setPayrollerComparison] = useState(null);
+  const [faithExceptionConfirmed, setFaithExceptionConfirmed] = useState(null); // null = undecided, true = confirmed normal, false = dismissed as a real issue
+
+  const closeEnough = (a, b, tol = 0.02) => Math.abs((a || 0) - (b || 0)) <= tol;
+
+  const computePayrollerComparison = () => {
+    const parsed = parsePayrollerText(payrollerPasteText);
+    const rows = parsed.map((p) => {
+      const matched = matchNameToRoster(p.name, roster, aliases);
+      const jibble = matched ? activeEmployees.find((e) => e.id === matched.id) : null;
+      return { payroller: p, matchedName: matched ? matched.name : null, jibble };
+    });
+    const matchedIds = new Set(rows.filter((r) => r.jibble).map((r) => r.jibble.id));
+    const missingFromPayroller = activeEmployees.filter((e) => !matchedIds.has(e.id));
+    const payrollerGrandTotal = parsed.reduce((a, p) => a + p.total, 0);
+    const unmatchedInPayroller = rows.filter((r) => !r.jibble);
+    const matchedRows = rows.filter((r) => r.jibble);
+    const rowMatches = (r) => {
+      const j = r.jibble, p = r.payroller;
+      const jOther = (j.breakInfo.count1 || 0) + (j.breakInfo.count2 || 0) + (j.sleepovers || 0);
+      return closeEnough(j.buckets.weekday, p.weekday) && closeEnough(j.buckets.afternoon, p.afternoon) &&
+        closeEnough(j.buckets.night, p.night) && closeEnough(j.buckets.saturday, p.saturday) &&
+        closeEnough(j.buckets.sunday, p.sunday) && closeEnough(j.buckets.publicHoliday, p.publicHoliday) &&
+        closeEnough(j.buckets.otTier1, p.otTier1) && closeEnough(j.buckets.otTier2, p.otTier2) &&
+        closeEnough(j.totalHours, p.total) && closeEnough(Math.round(j.weekKm), p.km, 0.5) &&
+        closeEnough(jOther, p.otherAllowanceUnits, 0.5);
+    };
+    const allMatch = matchedRows.length > 0 && matchedRows.every(rowMatches) && missingFromPayroller.length === 0 && unmatchedInPayroller.length === 0;
+
+    // Faith Winfield's hours are known to regularly not make it into Jibble
+    // even though she genuinely worked — check if she's the *only* thing
+    // stopping this from being a clean match, so we can ask about it
+    // specifically rather than just flagging a plain mismatch.
+    const faithRow = unmatchedInPayroller.find((r) => /faith/i.test(r.payroller.name)) || null;
+    const otherUnmatched = unmatchedInPayroller.filter((r) => r !== faithRow);
+    const isFaithOnlyIssue = !!faithRow && matchedRows.every(rowMatches) && missingFromPayroller.length === 0 && otherUnmatched.length === 0;
+
+    setPayrollerComparison({ rows, missingFromPayroller, payrollerGrandTotal, allMatch, faithRow, isFaithOnlyIssue });
+    setFaithExceptionConfirmed(null);
+  };
+
+  const [importMsg, setImportMsg] = useState("");
+  const [backupDirHandle, setBackupDirHandle] = useState(null);
+  const [backupDirName, setBackupDirName] = useState(null);
+  const [folderMsg, setFolderMsg] = useState("");
+  const fsApiSupported = typeof window !== "undefined" && "showDirectoryPicker" in window;
+
+  useEffect(() => {
+    if (!fsApiSupported) return;
+    idbGet("backupDir")
+      .then((handle) => { if (handle) { setBackupDirHandle(handle); setBackupDirName(handle.name); } })
+      .catch(() => {});
+  }, []);
+
+  const [shareMsg, setShareMsg] = useState("");
+
+  const downloadAppZip = async () => {
+    const html = (typeof window !== "undefined" && window.__PRISTINE_HTML__) || document.documentElement.outerHTML;
+    const now = new Date().toISOString();
+    const backupPayload = {
+      levels, levelOrder, roster, aliases, holidays, kmSettings, allowances, committedSheets, themeMode, exportedAt: now,
+    };
+    const dateTag = now.slice(0, 10);
+    const timeTag = now.slice(11, 19).replace(/:/g, "");
+    const htmlFilename = "support-beyond-payroll.html";
+    const backupFilename = `support-beyond-backup-${dateTag}-${timeTag}.json`;
+    const backupJson = JSON.stringify(backupPayload, null, 2);
+
+    const writeBothInto = async (dirHandle) => {
+      const htmlHandle = await dirHandle.getFileHandle(htmlFilename, { create: true });
+      const htmlWritable = await htmlHandle.createWritable();
+      await htmlWritable.write(html);
+      await htmlWritable.close();
+      const jsonHandle = await dirHandle.getFileHandle(backupFilename, { create: true });
+      const jsonWritable = await jsonHandle.createWritable();
+      await jsonWritable.write(backupJson);
+      await jsonWritable.close();
+    };
+
+    if (fsApiSupported) {
+      try {
+        // Reuse the already-configured backup folder if there is one — no
+        // extra prompt needed. Otherwise ask just this once for this export.
+        let dirHandle = backupDirHandle;
+        if (dirHandle) {
+          const perm = await dirHandle.requestPermission({ mode: "readwrite" });
+          if (perm !== "granted") dirHandle = null;
+        }
+        if (!dirHandle) dirHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+        const perm2 = await dirHandle.requestPermission({ mode: "readwrite" });
+        if (perm2 === "granted") {
+          await writeBothInto(dirHandle);
+          setShareMsg(`Saved both files straight into "${dirHandle.name}" ✓ — no unzipping needed.`);
+          setTimeout(() => setShareMsg(""), 8000);
+          return;
+        }
+      } catch (e) {
+        if (e && e.name === "AbortError") return; // they closed the folder picker on purpose
+        // anything else falls through to the zip fallback below
+      }
+    }
+
+    // Fallback for browsers that can't write straight into a folder
+    // (Safari, Firefox, any mobile browser) — a zip is the next best thing.
+    const encoder = new TextEncoder();
+    const files = [
+      { name: htmlFilename, data: encoder.encode(html) },
+      { name: backupFilename, data: encoder.encode(backupJson) },
+    ];
+    const zipBytes = buildZip(files);
+    downloadBlob(zipBytes, `support-beyond-app-${dateTag}.zip`, "application/zip");
+    setShareMsg("This browser can't save straight into a folder, so a zip downloaded instead — unzip it to get both files.");
+    setTimeout(() => setShareMsg(""), 8000);
+  };
+
+  const chooseBackupFolder = async () => {
+    if (!fsApiSupported) return;
+    try {
+      const handle = await window.showDirectoryPicker({ mode: "readwrite" });
+      const perm = await handle.requestPermission({ mode: "readwrite" });
+      if (perm !== "granted") {
+        setFolderMsg("Permission wasn't granted, so backups will keep downloading normally instead.");
+        setTimeout(() => setFolderMsg(""), 6000);
+        return;
+      }
+      // Prove it actually works end-to-end right now, not just that permission
+      // was granted — writes a real test file into the folder.
+      try {
+        const testHandle = await handle.getFileHandle("support-beyond-backup-test.txt", { create: true });
+        const testWritable = await testHandle.createWritable();
+        await testWritable.write("This file confirms Support Beyond can save backups here. Safe to delete.");
+        await testWritable.close();
+      } catch (writeErr) {
+        setFolderMsg("Got permission, but couldn't actually write a file there — try a different folder. Backups will keep downloading normally for now.");
+        setTimeout(() => setFolderMsg(""), 7000);
+        return;
+      }
+      await idbSet("backupDir", handle);
+      setBackupDirHandle(handle);
+      setBackupDirName(handle.name);
+      setFolderMsg(`✓ Test file written to "${handle.name}" — backups will now save there automatically.`);
+      setTimeout(() => setFolderMsg(""), 6000);
+    } catch (e) {
+      if (e && e.name === "AbortError") return; // user closed the picker, nothing to report
+      setFolderMsg("Couldn't set that up — your browser may be blocking folder access here. Backups will keep downloading normally instead.");
+      setTimeout(() => setFolderMsg(""), 7000);
+    }
+  };
+
+  // Filenames are support-beyond-backup-YYYY-MM-DD-HHMMSS.json, so a plain
+  // lexical sort is also a chronological sort — no need to open each file.
+  const pruneOldBackups = async (keepCount = 2) => {
+    if (!backupDirHandle) return;
+    try {
+      const names = [];
+      for await (const entry of backupDirHandle.values()) {
+        if (entry.kind === "file" && /^support-beyond-backup-\d{4}-\d{2}-\d{2}-\d{6}\.json$/.test(entry.name)) names.push(entry.name);
+      }
+      names.sort().reverse();
+      for (const name of names.slice(keepCount)) {
+        try { await backupDirHandle.removeEntry(name); } catch (e) { /* skip if it can't be removed */ }
+      }
+    } catch (e) { /* pruning is best-effort — never block the actual backup over this */ }
+  };
+
+  const writeBackupToFolder = async (filename, jsonStr) => {
+    if (!backupDirHandle) return { ok: false, reason: "no-folder" };
+    try {
+      const perm = await backupDirHandle.requestPermission({ mode: "readwrite" });
+      if (perm !== "granted") return { ok: false, reason: "permission" };
+      const fileHandle = await backupDirHandle.getFileHandle(filename, { create: true });
+      const writable = await fileHandle.createWritable();
+      await writable.write(jsonStr);
+      await writable.close();
+      await pruneOldBackups(2);
+      return { ok: true };
+    } catch (e) { return { ok: false, reason: "error" }; }
+  };
+
+  const [dragLevelKey, setDragLevelKey] = useState(null);
+  const [dragOverKey, setDragOverKey] = useState(null);
+  const [dragOverPos, setDragOverPos] = useState(null);
+  const [lastBackupAt, setLastBackupAt] = useState(null);
+  const [dragRosterId, setDragRosterId] = useState(null);
+  const [dragOverRosterId, setDragOverRosterId] = useState(null);
+  const [dragOverRosterPos, setDragOverRosterPos] = useState(null);
+  const [approvedKmCandidates, setApprovedKmCandidates] = useState({});
+  const [expandedKmSheet, setExpandedKmSheet] = useState({});
+
+  const [storageReady, setStorageReady] = useState(false);
+  const [saveErr, setSaveErr] = useState("");
+
+  useEffect(() => {
+    if (!fsApiSupported || !storageReady || !backupDirHandle) return;
+    (async () => {
+      try {
+        const perm = await backupDirHandle.queryPermission({ mode: "readwrite" });
+        if (perm !== "granted") return; // never prompt on load — silently skip
+        let latestFile = null, latestTime = 0;
+        for await (const entry of backupDirHandle.values()) {
+          if (entry.kind === "file" && /^support-beyond-backup-.*\.json$/.test(entry.name)) {
+            const file = await entry.getFile();
+            if (file.lastModified > latestTime) { latestTime = file.lastModified; latestFile = file; }
+          }
+        }
+        if (!latestFile) return;
+        const text = await latestFile.text();
+        const cfg = JSON.parse(text);
+        const folderTime = cfg.exportedAt ? new Date(cfg.exportedAt).getTime() : latestTime;
+        const localTime = lastBackupAt ? new Date(lastBackupAt).getTime() : 0;
+        if (folderTime > localTime) {
+          applyConfigToState(cfg);
+          setImportMsg(`Loaded latest backup from "${backupDirName}" ✓`);
+          setTimeout(() => setImportMsg(""), 5000);
+        }
+      } catch (e) { /* folder unreadable this session — don't disrupt loading */ }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storageReady, backupDirHandle]);
+  const [newHolidayDate, setNewHolidayDate] = useState("");
+  const [newHolidayName, setNewHolidayName] = useState("");
+  const [holidayImportText, setHolidayImportText] = useState("");
+  const [holidayImportYear, setHolidayImportYear] = useState(() => new Date().getFullYear());
+  const [holidayImportPreview, setHolidayImportPreview] = useState(null);
+  const [holidaysUndo, setHolidaysUndo] = useState(null);
+  const [holidaysActionMsg, setHolidaysActionMsg] = useState("");
+  const [committed, setCommitted] = useState(false);
+  const [committedBackupResult, setCommittedBackupResult] = useState(null);
+  const [exportFY, setExportFY] = useState(() => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const startYear = now.getMonth() >= 6 ? y : y - 1; // AU financial year starts July
+    return `${startYear}-${String(startYear + 1).slice(-2)}`;
+  });
+  const [activeTab, setActiveTab] = useState("sec-import");
+  const sectionOpen = useMemo(() => {
+    const obj = {};
+    NAV_ITEMS.forEach((n) => { obj[n.id] = n.id === activeTab; });
+    return obj;
+  }, [activeTab]);
+  const toggleSection = (id) => {
+    setActiveTab(id);
+    setTimeout(() => {
+      const el = document.getElementById("sb-tab-top");
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+  };
+  const openSection = (id) => {
+    setActiveTab(id);
+    setTimeout(() => {
+      const el = document.getElementById("sb-tab-top");
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+  };
+  const fileInputRef = useRef(null);
+
+  const [awardText, setAwardText] = useState("");
+  const [awardParsed, setAwardParsed] = useState(null);
+  const [awardTargetLevel, setAwardTargetLevel] = useState("");
+  const [bumpSummary, setBumpSummary] = useState(null);
+  const [brokenShiftSummary, setBrokenShiftSummary] = useState(null);
+
+  /* ---- load persisted config ---- */
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await window.storage.get(STORAGE_KEY, false);
+        if (res && res.value) {
+          const cfg = JSON.parse(res.value);
+          if (cfg.levels) setLevels(cfg.levels);
+          if (cfg.levelOrder) setLevelOrder(cfg.levelOrder);
+          if (cfg.roster) setRoster(cfg.roster);
+          if (cfg.aliases) setAliases(cfg.aliases);
+          if (cfg.holidays) setHolidays(cfg.holidays);
+          if (cfg.kmSettings) setKmSettings(cfg.kmSettings);
+          if (cfg.allowances) setAllowances(cfg.allowances);
+          if (cfg.committedSheets) setCommittedSheets(cfg.committedSheets);
+          if (cfg.themeMode) setThemeMode(cfg.themeMode);
+          if (cfg.lastBackupAt) setLastBackupAt(cfg.lastBackupAt);
+        }
+      } catch (e) { /* first run */ } finally { setStorageReady(true); }
+    })();
+  }, []);
+
+  const [undoStack, setUndoStack] = useState([]);
+  const [undoMsg, setUndoMsg] = useState("");
+  const MAX_UNDO = 30;
+
+  const persist = useCallback(
+    async (next) => {
+      const keys = Object.keys(next);
+      const isTrivial = keys.length > 0 && keys.every((k) => k === "themeMode" || k === "lastBackupAt");
+      if (!isTrivial) {
+        const snapshot = { levels, levelOrder, roster, aliases, holidays, kmSettings, allowances, committedSheets };
+        setUndoStack((prev) => [...prev.slice(-(MAX_UNDO - 1)), snapshot]);
+      }
+      try {
+        await window.storage.set(STORAGE_KEY, JSON.stringify({
+          levels: next.levels ?? levels, levelOrder: next.levelOrder ?? levelOrder, roster: next.roster ?? roster, aliases: next.aliases ?? aliases,
+          holidays: next.holidays ?? holidays, kmSettings: next.kmSettings ?? kmSettings,
+          allowances: next.allowances ?? allowances, committedSheets: next.committedSheets ?? committedSheets,
+          themeMode: next.themeMode ?? themeMode, lastBackupAt: next.lastBackupAt ?? lastBackupAt,
+        }), false);
+        setSaveErr("");
+      } catch (e) { setSaveErr("Couldn't save your settings — they'll still work for this session."); }
+    },
+    [levels, levelOrder, roster, aliases, holidays, kmSettings, allowances, committedSheets, themeMode, lastBackupAt]
+  );
+
+  const undo = useCallback(() => {
+    setUndoStack((prev) => {
+      if (prev.length === 0) { setUndoMsg("Nothing to undo"); setTimeout(() => setUndoMsg(""), 2000); return prev; }
+      const snapshot = prev[prev.length - 1];
+      const rest = prev.slice(0, -1);
+      setLevels(snapshot.levels);
+      setLevelOrder(snapshot.levelOrder);
+      setRoster(snapshot.roster);
+      setAliases(snapshot.aliases);
+      setHolidays(snapshot.holidays);
+      setKmSettings(snapshot.kmSettings);
+      setAllowances(snapshot.allowances);
+      setCommittedSheets(snapshot.committedSheets);
+      window.storage.set(STORAGE_KEY, JSON.stringify({ ...snapshot, themeMode, lastBackupAt }), false).catch(() => {});
+      setUndoMsg("Undone ✓");
+      setTimeout(() => setUndoMsg(""), 2500);
+      return rest;
+    });
+  }, [themeMode, lastBackupAt]);
+
+  const undoRef = useRef(undo);
+  undoRef.current = undo;
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !e.shiftKey) {
+        const tag = ((e.target && e.target.tagName) || "").toLowerCase();
+        if (tag === "input" || tag === "textarea") return; // don't steal undo from active text editing
+        e.preventDefault();
+        undoRef.current();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  const toggleTheme = () => {
+    setThemeMode((prev) => { const next = prev === "dark" ? "light" : "dark"; persist({ themeMode: next }); return next; });
+  };
+
+  /* ---- CSV import ---- */
+
+  const handleParse = useCallback(
+    (text) => {
+      const { shifts: parsed, error, skipped, format } = parseJibbleCSV(text);
+      if (error) { setParseMsg(error); setParseOk(false); setShifts([]); setCsvFormat(null); return; }
+      setShifts(parsed);
+      setCsvFormat(format);
+      setParseOk(true);
+      setParseMsg(skipped ? `CSV loaded (skipped ${skipped} blank row${skipped === 1 ? "" : "s"}).` : "CSV loaded.");
+      setMapping((prev) => {
+        const next = { ...prev };
+        for (const s of parsed) {
+          if (next[s.key] !== undefined) continue;
+          const norm = slugify(s.name).replace(/-/g, " ");
+          let found = roster.find((r) => slugify(r.name) === slugify(s.name));
+          if (!found && aliases[norm]) found = roster.find((r) => r.id === aliases[norm]);
+          next[s.key] = found ? found.id : "";
+        }
+        return next;
+      });
+    },
+    [roster, aliases]
+  );
+
+  const onFileChange = (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (ev) => { const text = String(ev.target.result || ""); handleParse(text); };
+    reader.readAsText(file);
+  };
+
+  const resetImport = () => {
+    setShifts([]); setCsvFormat(null); setFileName(""); setParseMsg(""); setParseOk(true);
+    setMapping({}); setWeeklyKmOverride({}); setBreakOverride({}); setSleepoverOverride({}); setApprovedKmCandidates({}); setHourOverride({});
+  };
+
+  /* ---- config editing ---- */
+
+  const updateLevelRate = (levelKey, field, value) => {
+    setLevels((prev) => { const next = { ...prev, [levelKey]: { ...prev[levelKey], [field]: value === "" ? "" : parseFloat(value) } }; persist({ levels: next }); return next; });
+  };
+  const applyFlatToAll = (levelKey, value) => {
+    setLevels((prev) => {
+      const v = value === "" ? "" : parseFloat(value);
+      const patch = {}; RATE_FIELDS.forEach((f) => (patch[f] = v));
+      const next = { ...prev, [levelKey]: { ...prev[levelKey], ...patch } };
+      persist({ levels: next }); return next;
+    });
+  };
+  const addLevel = (name) => {
+    const label = (name || "").trim() || "New level";
+    let key = slugify(label) || "level";
+    let n = 1;
+    while (levels[key]) { n++; key = `${slugify(label)}-${n}`; }
+    const newLevel = { label, hourly: 0, afternoon: 0, night: 0, saturday: 0, sunday: 0, publicHoliday: 0, otTier1: 0, otTier2: 0, flat: false };
+    const nextLevels = { ...levels, [key]: newLevel };
+    const nextOrder = [...levelOrder, key];
+    setLevels(nextLevels);
+    setLevelOrder(nextOrder);
+    persist({ levels: nextLevels, levelOrder: nextOrder });
+    return key;
+  };
+  const removeLevel = (key) => {
+    const nextLevels = { ...levels };
+    delete nextLevels[key];
+    const nextOrder = levelOrder.filter((k) => k !== key);
+    setLevels(nextLevels);
+    setLevelOrder(nextOrder);
+    persist({ levels: nextLevels, levelOrder: nextOrder });
+  };
+  const moveLevel = (fromKey, targetKey, position) => {
+    if (fromKey === targetKey) return;
+    setLevelOrder((prev) => {
+      const withoutFrom = prev.filter((k) => k !== fromKey);
+      let insertIdx;
+      if (targetKey == null) {
+        insertIdx = withoutFrom.length;
+      } else {
+        const targetIdx = withoutFrom.indexOf(targetKey);
+        insertIdx = position === "after" ? targetIdx + 1 : targetIdx;
+      }
+      const next = [...withoutFrom];
+      next.splice(insertIdx, 0, fromKey);
+      persist({ levelOrder: next });
+      return next;
+    });
+  };
+  const updateRosterField = (id, field, value) => {
+    setRoster((prev) => { const next = prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)); persist({ roster: next }); return next; });
+  };
+  const addRosterMember = () => {
+    setRoster((prev) => {
+      const name = "New employee"; let id = slugify(name); let n = 1;
+      while (prev.some((r) => r.id === id)) { n++; id = slugify(name) + "-" + n; }
+      const next = [...prev, { id, name, level: "l21", flatRateOnly: false, kmYTD: 0 }];
+      persist({ roster: next }); return next;
+    });
+  };
+  const removeRosterMember = (id) => { setRoster((prev) => { const next = prev.filter((r) => r.id !== id); persist({ roster: next }); return next; }); };
+  const moveRosterMember = (fromId, targetId, position) => {
+    if (fromId === targetId) return;
+    setRoster((prev) => {
+      const fromPerson = prev.find((r) => r.id === fromId);
+      if (!fromPerson) return prev;
+      const withoutFrom = prev.filter((r) => r.id !== fromId);
+      let insertIdx;
+      if (targetId == null) {
+        insertIdx = withoutFrom.length;
+      } else {
+        const targetIdx = withoutFrom.findIndex((r) => r.id === targetId);
+        insertIdx = position === "after" ? targetIdx + 1 : targetIdx;
+      }
+      const next = [...withoutFrom];
+      next.splice(insertIdx, 0, fromPerson);
+      persist({ roster: next });
+      return next;
+    });
+  };
+  const resetAllKmToZero = () => {
+    if (!confirmKmReset) {
+      setConfirmKmReset(true);
+      setTimeout(() => setConfirmKmReset(false), 4000);
+      return;
+    }
+    setConfirmKmReset(false);
+    setRoster((prev) => { const next = prev.map((r) => ({ ...r, kmYTD: 0 })); persist({ roster: next }); return next; });
+  };
+  const updateKmSetting = (field, value) => { setKmSettings((prev) => { const next = { ...prev, [field]: value === "" ? "" : parseFloat(value) }; persist({ kmSettings: next }); return next; }); };
+  const updateAllowance = (field, value) => { setAllowances((prev) => { const next = { ...prev, [field]: value === "" ? "" : parseFloat(value) }; persist({ allowances: next }); return next; }); };
+  const commitHolidays = (next, msg) => {
+    setHolidaysUndo(holidays);
+    setHolidays(next);
+    persist({ holidays: next });
+    setHolidaysActionMsg(msg);
+  };
+  const undoHolidays = () => {
+    if (!holidaysUndo) return;
+    setHolidays(holidaysUndo);
+    persist({ holidays: holidaysUndo });
+    setHolidaysUndo(null);
+    setHolidaysActionMsg("Reverted.");
+  };
+  const addHoliday = () => {
+    if (!newHolidayDate) return;
+    if (holidays.some((h) => h.date === newHolidayDate)) return;
+    const next = [...holidays, { date: newHolidayDate, name: newHolidayName || "Public holiday" }].sort((a, b) => a.date.localeCompare(b.date));
+    commitHolidays(next, "Holiday added.");
+    setNewHolidayDate(""); setNewHolidayName("");
+  };
+  const removeHoliday = (date) => {
+    const next = holidays.filter((h) => h.date !== date);
+    commitHolidays(next, "Holiday removed.");
+  };
+  const setPersonMapping = (csvKey, rosterId) => setMapping((prev) => ({ ...prev, [csvKey]: rosterId }));
+
+  // De-duplicates within the pasted batch itself (same date appearing twice
+  // in the source), and flags anything that already matches the current list.
+  const runHolidayImportParse = () => {
+    const parsed = parseHolidayText(holidayImportText, parseInt(holidayImportYear, 10) || new Date().getFullYear());
+    const seen = new Set();
+    const deduped = [];
+    for (const h of parsed) { if (seen.has(h.date)) continue; seen.add(h.date); deduped.push(h); }
+    const existing = new Set(holidays.map((h) => h.date));
+    const withStatus = deduped.map((h) => ({ ...h, alreadyOnList: existing.has(h.date) })).sort((a, b) => a.date.localeCompare(b.date));
+    setHolidayImportPreview(withStatus);
+  };
+  const applyHolidayImport = () => {
+    if (!holidayImportPreview || !holidayImportPreview.length) return;
+    const next = holidayImportPreview.map((h) => ({ date: h.date, name: h.name })).sort((a, b) => a.date.localeCompare(b.date));
+    commitHolidays(next, `Holiday list replaced with ${next.length} date${next.length === 1 ? "" : "s"}.`);
+    setHolidayImportText(""); setHolidayImportPreview(null);
+  };
+
+
+  /* ---- award rate update ---- */
+
+  const runAwardParse = () => {
+    const parsed = parseAwardText(awardText);
+    setAwardParsed(parsed);
+    setAwardTargetLevel(parsed.levelKeyGuess || "");
+    setBumpSummary(null);
+    setBrokenShiftSummary(null);
+  };
+
+  const awardMissingFields = useMemo(() => {
+    if (!awardParsed) return [];
+    return RATE_FIELDS.filter((f) => awardParsed.rates[f] == null).map((f) => RATE_FIELD_LABELS[f]);
+  }, [awardParsed]);
+
+  const awardDiff = useMemo(() => {
+    if (!awardParsed || !awardTargetLevel) return null;
+    const current = levels[awardTargetLevel];
+    if (!current) return null;
+    const rows = [];
+    for (const f of RATE_FIELDS) {
+      const awardVal = awardParsed.rates[f];
+      if (awardVal == null) continue;
+      const curVal = current[f];
+      if (curVal < awardVal) rows.push({ field: f, label: RATE_FIELD_LABELS[f], current: curVal, award: awardVal, action: "bump" });
+      else rows.push({ field: f, label: RATE_FIELD_LABELS[f], current: curVal, award: awardVal, action: "above", diff: curVal - awardVal });
+    }
+    return rows;
+  }, [awardParsed, awardTargetLevel, levels]);
+
+  const applyAwardBumps = () => {
+    if (!awardDiff || !awardTargetLevel) return;
+    const patch = {}; const changes = [];
+    for (const row of awardDiff) { if (row.action !== "bump") continue; patch[row.field] = row.award; changes.push({ label: row.label, from: row.current, to: row.award }); }
+    if (changes.length) { const nextLevels = { ...levels, [awardTargetLevel]: { ...levels[awardTargetLevel], ...patch } }; setLevels(nextLevels); persist({ levels: nextLevels }); }
+    setBumpSummary(changes);
+  };
+
+  const brokenShiftDiff = useMemo(() => {
+    if (!awardParsed || awardParsed.brokenShift == null) return null;
+    const award = awardParsed.brokenShift;
+    const d1 = Math.abs(award - (allowances.break1 || 0));
+    const d2 = Math.abs(award - (allowances.break2 || 0));
+    const field = d2 < d1 ? "break2" : "break1";
+    const label = field === "break2" ? "Broken shift — 2 breaks" : "Broken shift — 1 break";
+    const current = allowances[field];
+    return current < award ? { field, label, current, award, action: "bump" } : { field, label, current, award, action: "above", diff: current - award };
+  }, [awardParsed, allowances]);
+
+  const applyBrokenShiftBump = () => {
+    if (!brokenShiftDiff || brokenShiftDiff.action !== "bump") return;
+    const nextAllowances = { ...allowances, [brokenShiftDiff.field]: brokenShiftDiff.award };
+    setAllowances(nextAllowances); persist({ allowances: nextAllowances });
+    setBrokenShiftSummary({ label: brokenShiftDiff.label, from: brokenShiftDiff.current, to: brokenShiftDiff.award });
+  };
+
+  /* ---- computation ---- */
+
+  const holidaySet = useMemo(() => new Set(holidays.map((h) => h.date)), [holidays]);
+
+  const shiftsByRoster = useMemo(() => {
+    const map = {};
+    for (const s of shifts) { const rid = mapping[s.key]; if (!rid) continue; if (!map[rid]) map[rid] = []; map[rid].push(s); }
+    return map;
+  }, [shifts, mapping]);
+
+  const unmatchedCsvPeople = useMemo(() => {
+    const seen = {}; const list = [];
+    for (const s of shifts) { if (seen[s.key]) continue; seen[s.key] = true; if (!mapping[s.key]) list.push(s); }
+    return list;
+  }, [shifts, mapping]);
+
+  const kmCandidatesFor = (rid) => {
+    const rShifts = shiftsByRoster[rid] || [];
+    const candidates = [];
+    rShifts.forEach((s, shiftIdx) => {
+      extractKmCandidates(s.notes || []).forEach((c) => {
+        candidates.push({ ...c, id: `${rid}::${s.dateISO || shiftIdx}::${c.noteIdx}::${c.start}` });
+      });
+    });
+    return candidates;
+  };
+  const weeklyKmAutoFor = (rid) => {
+    const rShifts = shiftsByRoster[rid] || [];
+    let total = 0;
+    for (const s of rShifts) total += extractKm(s.notes || []).total;
+    for (const c of kmCandidatesFor(rid)) if (approvedKmCandidates[c.id] === "approved") total += c.value;
+    return Math.round(total);
+  };
+  const weeklyKmFor = (rid) => (weeklyKmOverride[rid] !== undefined && weeklyKmOverride[rid] !== "" ? Math.round(parseFloat(weeklyKmOverride[rid])) || 0 : weeklyKmAutoFor(rid));
+
+  const breakClaimFor = (rid) => {
+    const rShifts = shiftsByRoster[rid] || [];
+    let autoCount1 = 0; let autoCount2 = 0;
+    for (const s of rShifts) { const b = extractBreakClaims(s.notes || [], allowances); autoCount1 += b.count1; autoCount2 += b.count2; }
+    const ov = breakOverride[rid];
+    const count1 = ov && ov.count1 !== undefined ? ov.count1 : autoCount1;
+    const count2 = ov && ov.count2 !== undefined ? ov.count2 : autoCount2;
+    const amount = count1 * (allowances.break1 || 0) + count2 * (allowances.break2 || 0);
+    return { count1, count2, count: count1 + count2, amount };
+  };
+
+  const sleepoverFor = (rid) => {
+    const rShifts = shiftsByRoster[rid] || [];
+    let autoCount = 0; const quotes = [];
+    for (const s of rShifts) { const r = extractSleepovers(s.notes || []); autoCount += r.count; quotes.push(...r.quotes); }
+    const override = sleepoverOverride[rid];
+    const count = override !== undefined && override !== "" ? parseInt(override, 10) || 0 : autoCount;
+    return { count, autoCount, quotes };
+  };
+
+  const kmPayFor = (rid, weekKm) => {
+    const person = roster.find((r) => r.id === rid);
+    const startYTD = (person && person.kmYTD) || 0;
+    const threshold = kmSettings.threshold || 5000;
+    const endYTD = startYTD + weekKm;
+    let underKm = 0, overKm = 0;
+    if (startYTD >= threshold) overKm = weekKm;
+    else if (endYTD <= threshold) underKm = weekKm;
+    else { underKm = threshold - startYTD; overKm = weekKm - underKm; }
+    const taxableAmount = underKm * (kmSettings.underTaxable || 0);
+    const exemptAmount = underKm * (kmSettings.underExempt || 0) + overKm * (kmSettings.overExempt || 0);
+    const pay = taxableAmount + exemptAmount;
+    return { pay, startYTD, endYTD, underKm, overKm, taxableAmount, exemptAmount };
+  };
+
+  const perEmployee = useMemo(() => {
+    return roster.map((person) => {
+      const rShifts = shiftsByRoster[person.id] || [];
+      const level = levels[person.level] || levels.l21;
+      const skipOvertime = level.flat || person.flatRateOnly;
+      let rawBuckets;
+      if (person.flatRateOnly) { const totalHours = rShifts.reduce((a, s) => a + s.hours, 0); rawBuckets = { weekday: totalHours, afternoon: 0, night: 0, saturday: 0, sunday: 0, publicHoliday: 0, otTier1: 0, otTier2: 0 }; }
+      else rawBuckets = computeWeekBuckets(rShifts, holidaySet, { skipOvertime });
+      const buckets = {};
+      for (const k of Object.keys(rawBuckets)) buckets[k] = truncate2(rawBuckets[k]);
+      const hOv = hourOverride[person.id];
+      if (hOv) {
+        for (const k of Object.keys(hOv)) {
+          if (hOv[k] !== undefined && hOv[k] !== "") buckets[k] = parseFloat(hOv[k]) || 0;
+        }
+      }
+
+      const pay = {}; let totalHours = 0; let totalPay = 0;
+      for (const dt of [...DAY_TYPES, "otTier1", "otTier2"]) {
+        const hrs = buckets[dt] || 0;
+        const rate = dt === "otTier1" ? level.otTier1 : dt === "otTier2" ? level.otTier2 : level[dt];
+        const p = hrs * (rate || 0);
+        pay[dt] = p; totalHours += hrs; totalPay += p;
+      }
+      const weekKm = weeklyKmFor(person.id);
+      const kmInfo = kmPayFor(person.id, weekKm);
+      const breakInfo = breakClaimFor(person.id);
+      const sleepInfo = sleepoverFor(person.id);
+      const sleepoverPay = sleepInfo.count * (allowances.sleepover || 0);
+      const allowancePay = breakInfo.amount + sleepoverPay;
+
+      return {
+        id: person.id, name: person.name, level: person.level, levelLabel: level.label, flatRateOnly: person.flatRateOnly,
+        buckets, pay, totalHours: truncate2(totalHours), totalPay, weekKm, kmInfo, kmPay: kmInfo.pay,
+        breakInfo, sleepInfo, sleepovers: sleepInfo.count, sleepoverPay, allowancePay,
+        grandTotal: totalPay + kmInfo.pay + allowancePay, shifts: rShifts, hasShifts: rShifts.length > 0,
+      };
+    });
+  }, [roster, shiftsByRoster, holidaySet, levels, weeklyKmOverride, breakOverride, sleepoverOverride, kmSettings, allowances, approvedKmCandidates, hourOverride]);
+
+  const activeEmployees = perEmployee.filter((e) => e.hasShifts);
+  const grandTotalHours = activeEmployees.reduce((a, e) => a + e.totalHours, 0);
+  const kmThresholdCrossers = activeEmployees.filter((e) => e.kmInfo.startYTD < (kmSettings.threshold || 5000) && e.kmInfo.endYTD >= (kmSettings.threshold || 5000));
+
+  /* ---- commit / delete sheets ---- */
+
+  const commitSheet = async () => {
+    if (activeEmployees.length === 0) return;
+    const dates = shifts.map((s) => s.dateISO).filter(Boolean).sort();
+    const record = { id: uid(), fileName: fileName || "(pasted CSV)", format: csvFormat, importedAt: new Date().toISOString(), dateFrom: dates[0] || null, dateTo: dates[dates.length - 1] || null, perEmployee: {} };
+    for (const e of activeEmployees) {
+      record.perEmployee[e.id] = { name: e.name, buckets: e.buckets, totalHours: e.totalHours, weekKm: e.weekKm, breakCount1: e.breakInfo.count1, breakCount2: e.breakInfo.count2, breakAmount: e.breakInfo.amount, sleepovers: e.sleepovers, sleepoverPay: e.sleepoverPay, kmPay: e.kmPay, wagesPay: e.totalPay, grandTotal: e.grandTotal };
+    }
+    const nextCommittedSheets = [...committedSheets, record];
+    const nextRoster = roster.map((r) => { const snap = record.perEmployee[r.id]; return snap && snap.weekKm > 0 ? { ...r, kmYTD: (r.kmYTD || 0) + snap.weekKm } : r; });
+    setCommittedSheets(nextCommittedSheets);
+    setRoster(nextRoster);
+    const backupResult = await downloadBackupFile({ committedSheets: nextCommittedSheets, roster: nextRoster });
+    resetImport();
+    setCommitted(true);
+    setCommittedBackupResult(backupResult);
+    openSection("sec-committed");
+    setTimeout(() => { setCommitted(false); setCommittedBackupResult(null); }, 6000);
+  };
+
+  const deleteSheet = (id) => {
+    const sheet = committedSheets.find((s) => s.id === id);
+    if (!sheet) return;
+    const nextRoster = roster.map((r) => { const snap = sheet.perEmployee[r.id]; return snap && snap.weekKm > 0 ? { ...r, kmYTD: Math.max(0, (r.kmYTD || 0) - snap.weekKm) } : r; });
+    const nextCommittedSheets = committedSheets.filter((s) => s.id !== id);
+    setRoster(nextRoster);
+    setCommittedSheets(nextCommittedSheets);
+    persist({ roster: nextRoster, committedSheets: nextCommittedSheets });
+  };
+
+  const deleteAllSheets = () => {
+    const nextRoster = roster.map((r) => {
+      let totalKm = 0;
+      for (const sheet of committedSheets) {
+        const snap = sheet.perEmployee[r.id];
+        if (snap && snap.weekKm > 0) totalKm += snap.weekKm;
+      }
+      return totalKm > 0 ? { ...r, kmYTD: Math.max(0, (r.kmYTD || 0) - totalKm) } : r;
+    });
+    setRoster(nextRoster);
+    setCommittedSheets([]);
+    persist({ roster: nextRoster, committedSheets: [] });
+  };
+
+  // Corrects a km figure inside an already-committed sheet (e.g. you spot a
+  // mistake after the fact) and rolls the difference straight into that
+  // person's km YTD, so the two never drift out of sync.
+  const editSheetKm = (sheetId, empId, newKmRaw) => {
+    const newKm = Math.max(0, Math.round(parseFloat(newKmRaw)) || 0);
+    const sheet = committedSheets.find((s) => s.id === sheetId);
+    if (!sheet || !sheet.perEmployee[empId]) return;
+    const oldKm = sheet.perEmployee[empId].weekKm || 0;
+    const delta = newKm - oldKm;
+    if (delta === 0) return;
+    const nextCommittedSheets = committedSheets.map((s) => {
+      if (s.id !== sheetId) return s;
+      return { ...s, perEmployee: { ...s.perEmployee, [empId]: { ...s.perEmployee[empId], weekKm: newKm } } };
+    });
+    const nextRoster = roster.map((r) => (r.id === empId ? { ...r, kmYTD: Math.max(0, (r.kmYTD || 0) + delta) } : r));
+    setCommittedSheets(nextCommittedSheets);
+    setRoster(nextRoster);
+    persist({ committedSheets: nextCommittedSheets, roster: nextRoster });
+  };
+
+  /* ---- export ---- */
+
+  const downloadBlob = (content, filename, mime) => {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadBackupFile = async (overrides = {}) => {
+    const now = new Date().toISOString();
+    const payload = {
+      levels: overrides.levels ?? levels, levelOrder: overrides.levelOrder ?? levelOrder, roster: overrides.roster ?? roster,
+      aliases: overrides.aliases ?? aliases, holidays: overrides.holidays ?? holidays, kmSettings: overrides.kmSettings ?? kmSettings,
+      allowances: overrides.allowances ?? allowances, committedSheets: overrides.committedSheets ?? committedSheets,
+      themeMode: overrides.themeMode ?? themeMode, exportedAt: now,
+    };
+    const dateTag = now.slice(0, 10);
+    const timeTag = now.slice(11, 19).replace(/:/g, "");
+    const filename = `support-beyond-backup-${dateTag}-${timeTag}.json`;
+    const jsonStr = JSON.stringify(payload, null, 2);
+    const writeResult = await writeBackupToFolder(filename, jsonStr);
+    if (!writeResult.ok) downloadBlob(jsonStr, filename, "application/json");
+    setLastBackupAt(now);
+    persist({ ...overrides, lastBackupAt: now });
+    return { wroteToFolder: writeResult.ok, reason: writeResult.reason, filename };
+  };
+
+  const importFileRef = useRef(null);
+  const applyConfigToState = (cfg) => {
+    if (cfg.levels) setLevels(cfg.levels);
+    if (cfg.levelOrder) setLevelOrder(cfg.levelOrder);
+    if (cfg.roster) setRoster(cfg.roster);
+    if (cfg.aliases) setAliases(cfg.aliases);
+    if (cfg.holidays) setHolidays(cfg.holidays);
+    if (cfg.kmSettings) setKmSettings(cfg.kmSettings);
+    if (cfg.allowances) setAllowances(cfg.allowances);
+    if (cfg.committedSheets) setCommittedSheets(cfg.committedSheets);
+    if (cfg.themeMode) setThemeMode(cfg.themeMode);
+    if (cfg.exportedAt) setLastBackupAt(cfg.exportedAt);
+    persist(cfg);
+  };
+
+  const onImportConfigFile = (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const cfg = JSON.parse(String(ev.target.result || "{}"));
+        applyConfigToState(cfg);
+        setImportMsg("Backup restored ✓");
+      } catch (err) {
+        setImportMsg("Couldn't read that file — is it a backup exported from this app?");
+      }
+      setTimeout(() => setImportMsg(""), 4000);
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  // Minimal, dependency-free PDF writer (no library available for this).
+  // Builds a valid single-page PDF byte-for-byte: content stream with
+  // Helvetica text + simple filled rectangles, then a proper xref/trailer.
+  // Validated against pypdf during development.
+  const pdfEsc = (s) => String(s).replace(/[^\x20-\x7E]/g, "").replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
+  const hexToRgbFrac = (hex) => {
+    const h = hex.replace("#", "");
+    return [0, 2, 4].map((i) => (parseInt(h.substring(i, i + 2), 16) / 255).toFixed(3)).join(" ");
+  };
+  const buildPdfDocument = ({ pageWidth, pageHeight, contentStream }) => {
+    let pdf = "%PDF-1.4\n";
+    const offsets = [0];
+    const addObj = (str) => { offsets.push(pdf.length); pdf += str; };
+    addObj(`1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n`);
+    addObj(`2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n`);
+    addObj(`3 0 obj\n<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Contents 4 0 R >>\nendobj\n`);
+    addObj(`4 0 obj\n<< /Length ${contentStream.length} >>\nstream\n${contentStream}\nendstream\nendobj\n`);
+    addObj(`5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>\nendobj\n`);
+    addObj(`6 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>\nendobj\n`);
+    const xrefStart = pdf.length;
+    const objCount = offsets.length;
+    let xref = `xref\n0 ${objCount}\n0000000000 65535 f \n`;
+    for (let i = 1; i < objCount; i++) xref += String(offsets[i]).padStart(10, "0") + " 00000 n \n";
+    pdf += xref;
+    pdf += `trailer\n<< /Size ${objCount} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
+    return pdf;
+  };
+
+  const exportFYPDF = () => {
+    const rows = roster.map((p) => ({ name: p.name, km: Math.round(p.kmYTD || 0) })).filter((r) => r.km > 0 || true);
+    const fyLabel = `FY ${exportFY || "—"}`;
+
+    const pageWidth = 595.28, pageHeight = 841.89;
+    const marginX = 50;
+    const blue = hexToRgbFrac("#2A5FA8");
+    const darkNavy = hexToRgbFrac("#12233D");
+    const bodyText = hexToRgbFrac("#1A2433");
+    const stripeBg = hexToRgbFrac("#F2F6FC");
+    const dateGrey = hexToRgbFrac("#7C8CA3");
+
+    let y = pageHeight - 56;
+    let content = "";
+    content += `${blue} rg\n0 ${pageHeight - 8} ${pageWidth} 8 re f\n`;
+    content += `BT /F2 10 Tf ${blue} rg ${marginX} ${y} Td (SUPPORT BEYOND) Tj ET\n`;
+    y -= 24;
+    content += `BT /F2 19 Tf ${darkNavy} rg ${marginX} ${y} Td (Kilometre Reimbursement Summary) Tj ET\n`;
+    const dateLabel = pdfEsc(fyLabel);
+    const dateWidth = dateLabel.length * 9 * 0.6;
+    content += `BT /F2 9 Tf ${dateGrey} rg ${pageWidth - marginX - dateWidth} ${pageHeight - 56} Td (${dateLabel}) Tj ET\n`;
+    y -= 30;
+
+    const tableWidth = pageWidth - 2 * marginX;
+    const colKmRight = pageWidth - marginX - 10;
+    const rowH = 22;
+
+    content += `${blue} rg ${marginX} ${y - 16} ${tableWidth} 22 re f\n`;
+    content += `BT /F2 10 Tf 1 1 1 rg ${marginX + 10} ${y - 9} Td (EMPLOYEE) Tj ET\n`;
+    content += `BT /F2 10 Tf 1 1 1 rg ${colKmRight - 55} ${y - 9} Td (KM YTD) Tj ET\n`;
+    y -= rowH + 6;
+
+    rows.forEach((r, i) => {
+      if (i % 2 === 1) content += `${stripeBg} rg ${marginX} ${y - 16} ${tableWidth} 22 re f\n`;
+      content += `BT /F1 10.5 Tf ${bodyText} rg ${marginX + 10} ${y - 9} Td (${pdfEsc(r.name)}) Tj ET\n`;
+      const kmText = String(r.km);
+      const digitW = 10.5 * 0.556;
+      const kmX = colKmRight - kmText.length * digitW;
+      content += `BT /F1 10.5 Tf ${bodyText} rg ${kmX} ${y - 9} Td (${kmText}) Tj ET\n`;
+      y -= rowH;
+    });
+
+    content += `${blue} RG 0.8 w ${marginX} ${y + 6} m ${pageWidth - marginX} ${y + 6} l S\n`;
+
+    const pdfString = buildPdfDocument({ pageWidth, pageHeight, contentStream: content });
+    downloadBlob(pdfString, `km-summary-FY${(exportFY || "export").replace(/\s+/g, "")}.pdf`, "application/pdf");
+  };
+
+  /* =========================================================================
+     RENDER
+     ========================================================================= */
+
+  const holidaysByMonth = useMemo(() => {
+    const byMonth = Array.from({ length: 12 }, () => []);
+    for (const h of holidays) { const m = parseInt(h.date.split("-")[1], 10) - 1; if (m >= 0 && m < 12) byMonth[m].push(h); }
+    byMonth.forEach((arr) => arr.sort((a, b) => a.date.localeCompare(b.date)));
+    return byMonth;
+  }, [holidays]);
+
+  const yearOptions = useMemo(() => {
+    const currentReal = new Date().getFullYear();
+    const arr = [];
+    for (let y = currentReal - 1; y <= currentReal + 20; y++) arr.push({ value: y, label: String(y) });
+    return arr;
+  }, []);
+
+  const fyOptions = useMemo(() => {
+    const now = new Date();
+    const startYear = now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1;
+    const arr = [];
+    for (let y = startYear - 2; y <= startYear + 30; y++) arr.push({ value: `${y}-${String(y + 1).slice(-2)}`, label: `FY ${y}-${String(y + 1).slice(-2)}` });
+    return arr;
+  }, []);
+
+  return (
+    <div style={{ minHeight: "100vh", background: T.page, fontFamily: "ui-sans-serif, system-ui, -apple-system, sans-serif", color: T.text, transition: "background 0.2s ease, color 0.2s ease" }}>
+      <style>{`
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        ::placeholder { color: ${T.textFaint}; }
+        input[type=date]::-webkit-calendar-picker-indicator { filter: ${themeMode === "dark" ? "invert(0.8)" : "none"}; }
+        input, textarea { transition: border-color 0.15s ease, box-shadow 0.15s ease; }
+        input:hover, textarea:hover { border-color: ${T.accent}; }
+        input:focus, textarea:focus { outline: none; border-color: ${T.accent}; box-shadow: 0 0 0 3px ${T.accent}2A; }
+        .sb-icon-btn { transition: background 0.15s ease, transform 0.1s ease, color 0.15s ease; }
+        .sb-icon-btn:hover { background: ${T.warn}22; color: ${T.warn}; }
+        .sb-header-copy:hover { background: ${T.accent}; color: ${T.accentContrastText}; }
+        .sb-header-copy:active { transform: scale(0.96); }
+        .sb-icon-btn:active { transform: scale(0.92); }
+        .sb-btn-hover { transition: filter 0.15s ease, transform 0.08s ease; }
+        .sb-btn-hover:hover:not(:disabled) { filter: brightness(1.08); }
+        .sb-btn-hover:active:not(:disabled) { transform: scale(0.98); }
+        .sb-btn-hover:disabled { opacity: 0.45; cursor: not-allowed; }
+        .sb-toggle-track { transition: background 0.2s ease; }
+        .sb-toggle-thumb { transition: left 0.2s ease; }
+        .sb-table tbody tr:nth-child(even) td { background: ${T.rowStripe}; }
+        .sb-table tbody tr:hover td { background: ${T.rowHover}; }
+        .sb-table { overflow-x: auto; scrollbar-width: thin; scrollbar-color: ${T.inputBorder} transparent; }
+        .sb-table::-webkit-scrollbar { height: 8px; }
+        .sb-table::-webkit-scrollbar-track { background: transparent; }
+        .sb-table::-webkit-scrollbar-thumb { background: ${T.inputBorder}; border-radius: 999px; }
+        .sb-table::-webkit-scrollbar-thumb:hover { background: ${T.accent}; }
+        textarea { scrollbar-width: thin; scrollbar-color: ${T.inputBorder} transparent; }
+        textarea::-webkit-scrollbar { width: 8px; }
+        textarea::-webkit-scrollbar-track { background: transparent; }
+        textarea::-webkit-scrollbar-thumb { background: ${T.inputBorder}; border-radius: 999px; }
+        textarea::-webkit-scrollbar-thumb:hover { background: ${T.accent}; }
+        input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+        .sb-table table td:first-child, .sb-table table th:first-child {
+          position: sticky; left: 0; z-index: 2; background: ${T.card};
+          box-shadow: 4px 0 8px -4px rgba(0,0,0,0.35);
+        }
+        .sb-table table tbody tr:hover td:first-child { background: ${T.accentSoft}; }
+        .sb-navpill { transition: background 0.15s ease, color 0.15s ease; }
+        .sb-navpill:hover { background: ${T.accentSoft}; }
+        @keyframes sb-dd-in { from { opacity: 0; transform: translateY(-6px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        @keyframes sb-match-pop { 0% { opacity: 0; transform: scale(0.85); } 60% { opacity: 1; transform: scale(1.03); } 100% { opacity: 1; transform: scale(1); } }
+        .sb-match-banner { animation: sb-match-pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+        .sb-dd-panel { animation: sb-dd-in 0.18s ease 0.03s both; }
+        .sb-card { transition: border-color 0.2s ease; }
+        a { color: ${T.accent}; }
+        @media (max-width: 640px) {
+          .sb-pagepad { padding: 12px !important; }
+          .sb-headerpad { padding: 20px 16px !important; }
+          .sb-card { padding: 14px 14px !important; }
+          .sb-h1 { font-size: 21px !important; }
+          .sb-sub { font-size: 13px !important; }
+          .sb-sectiontitle { font-size: 16px !important; }
+          .sb-table { font-size: 11.5px !important; }
+          .sb-btnrow { flex-direction: column !important; align-items: stretch !important; }
+          .sb-btnrow > button, .sb-btnrow > a { width: 100%; justify-content: center !important; }
+          .sb-nav { justify-content: flex-start !important; overflow-x: auto !important; }
+          input, select, textarea { font-size: 16px !important; }
+        }
+      `}</style>
+
+      <div className="sb-headerpad" style={{ background: T.header, color: HEADER_TEXT, padding: "24px 24px", borderBottom: `1px solid ${T.divider}` }}>
+        <div style={{ maxWidth: 1440, margin: "0 auto", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontSize: 12, letterSpacing: "0.14em", textTransform: "uppercase", color: HEADER_EYEBROW, marginBottom: 6 }}>Support Beyond payroll</div>
+            <h1 className="sb-h1" style={{ fontFamily: "ui-serif, Georgia, serif", fontSize: 30, fontWeight: 600, margin: 0, color: HEADER_TEXT }}>Timesheet, rates & km calculator</h1>
+            <p className="sb-sub" style={{ margin: "8px 0 0", color: "#C7D8EC", fontSize: 14.5, maxWidth: 640 }}>
+              Roster, rate card and km's are preloaded. Import a week, check it, commit it — every committed week is kept.
+            </p>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <button onClick={undo} disabled={undoStack.length === 0} title="Undo (Ctrl+Z)" style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.16)", borderRadius: 999, padding: "6px 14px 6px 10px", cursor: undoStack.length === 0 ? "default" : "pointer", color: HEADER_TEXT, fontSize: 12.5, fontWeight: 600, opacity: undoStack.length === 0 ? 0.45 : 1 }}>
+              <Undo2 size={14} /> Undo
+            </button>
+            <button onClick={downloadAppZip} style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.16)", borderRadius: 999, padding: "6px 14px 6px 10px", cursor: "pointer", color: HEADER_TEXT, fontSize: 12.5, fontWeight: 600 }}>
+              <Download size={14} /> Download app + backup
+            </button>
+            <ThemeToggle mode={themeMode} onToggle={toggleTheme} />
+          </div>
+        </div>
+        {(shareMsg || undoMsg) && (
+          <div style={{ maxWidth: 1440, margin: "10px auto 0", fontSize: 12.5, color: "#EAF1FB", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 8, padding: "8px 12px" }}>
+            {undoMsg || shareMsg}
+          </div>
+        )}
+        <div className="sb-nav" id="sb-tab-top" style={{ maxWidth: 1440, margin: "18px auto 0", display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {NAV_ITEMS.map((n) => {
+            const active = activeTab === n.id;
+            return (
+              <button key={n.id} onClick={() => setActiveTab(n.id)} className="sb-navpill"
+                style={{
+                  background: active ? HEADER_TEXT : "rgba(255,255,255,0.06)",
+                  border: `1px solid ${active ? HEADER_TEXT : "rgba(255,255,255,0.14)"}`,
+                  color: active ? T.header : HEADER_TEXT,
+                  borderRadius: 999, padding: "6px 13px", fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap",
+                }}>
+                {n.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="sb-pagepad" style={{ maxWidth: 1440, margin: "0 auto", padding: "24px", display: "flex", flexDirection: "column", gap: 18 }}>
+        {!storageReady && <div style={{ fontSize: 13, color: T.textDim }}>Loading saved settings…</div>}
+        {saveErr && <div className="sb-card" style={S.cardStyle}><span style={{ color: T.warn, fontSize: 13 }}>{saveErr}</span></div>}
+
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, padding: "4px 2px" }}>
+          <span style={{ fontSize: 11.5, color: T.textFaint }}>Backups save automatically when you commit a sheet.</span>
+          <div style={{ display: "flex", gap: 8, marginLeft: "auto", alignItems: "center" }}>
+            {fsApiSupported && (
+              <button className="sb-btn-hover" style={S.btnGhost} onClick={chooseBackupFolder}>
+                {backupDirName ? `Saving to: ${backupDirName}` : "Choose backup folder"}
+              </button>
+            )}
+            <button className="sb-btn-hover" style={S.btnGhost} onClick={() => importFileRef.current?.click()}><Upload size={13} /> Import backup</button>
+            <input ref={importFileRef} type="file" accept="application/json" onChange={onImportConfigFile} style={{ display: "none" }} />
+          </div>
+          {importMsg && <span style={{ fontSize: 11.5, color: importMsg.includes("restored") ? T.good : T.warn, fontWeight: 600, width: "100%" }}>{importMsg}</span>}
+          {folderMsg && <span style={{ fontSize: 11.5, color: folderMsg.startsWith("✓") ? T.good : T.warn, fontWeight: 600, width: "100%" }}>{folderMsg}</span>}
+        </div>
+
+        {/* Import CSV */}
+        {activeTab === "sec-import" && (
+        <section id="sec-import" className="sb-card" style={S.cardStyle}>
+          <SectionHeader id="sec-import" title="Import & check this week" icon={FileSpreadsheet} T={T} open={sectionOpen["sec-import"]} onToggle={() => toggleSection("sec-import")} />
+          <CollapseBody open={sectionOpen["sec-import"]}>
+          <p style={{ fontSize: 13, color: T.textDim, marginTop: 6 }}>
+            Needs a Jibble <strong>Time Entries</strong> export specifically — that's the one with shift notes, so km's,
+            "1 break @ $x" claims, and "sleepover" mentions all get picked up automatically.
+          </p>
+          <div style={{ marginTop: 12, background: T.accentSoft, border: `1px solid ${T.cardBorder}`, borderRadius: 10, padding: "10px 14px" }}>
+            <div style={{ fontWeight: 700, fontSize: 10.5, textTransform: "uppercase", letterSpacing: "0.06em", color: T.textDim, marginBottom: 6 }}>Reminders</div>
+            <div style={{ fontSize: 12.5, color: T.text, lineHeight: 1.7 }}>
+              <div>Take 40% off pre-tax income for Brytnie (nearest $)</div>
+              <div>Total Jibble hrs = total payroller hrs (+/- 0.1)</div>
+            </div>
+          </div>
+          <div className="sb-btnrow" style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginTop: 12 }}>
+            <button className="sb-btn-hover" style={S.btnPrimary} onClick={() => fileInputRef.current?.click()}><Upload size={15} /> Upload Jibble Time Entries CSV</button>
+            <input ref={fileInputRef} type="file" accept=".csv,text/csv" onChange={onFileChange} style={{ display: "none" }} />
+            {fileName && <span style={{ fontSize: 13, color: T.textDim }}>{fileName}</span>}
+          </div>
+          {parseMsg && <div style={{ marginTop: 12, fontSize: 13.5, color: parseOk ? T.good : T.warn, fontWeight: 600 }}>{parseMsg}</div>}
+
+          {unmatchedCsvPeople.length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: T.warn }}>{unmatchedCsvPeople.length} name{unmatchedCsvPeople.length === 1 ? "" : "s"} in the CSV didn't match anyone on the roster — pick who they are:</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
+                {unmatchedCsvPeople.map((s) => (
+                  <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 13, width: 160 }}>{s.name}</span>
+                    <Dropdown value={mapping[s.key] || ""} onChange={(v) => setPersonMapping(s.key, v)} placeholder="— choose —" options={roster.map((r) => ({ value: r.id, label: r.name }))} T={T} width={210} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {shifts.length > 0 && (
+            <div style={{ marginTop: 22, paddingTop: 18, borderTop: `1px solid ${T.divider}` }}>
+              <div style={{ fontWeight: 700, fontSize: 13, color: T.text, marginBottom: 4 }}>Check this week, then commit it</div>
+              <div style={{ display: "flex", gap: 24, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
+                <SummaryStat label="Total hours" value={grandTotalHours.toFixed(2)} T={T} />
+                <SummaryStat label="Staff worked" value={String(activeEmployees.length)} T={T} />
+                <button className="sb-btn-hover" style={S.btnGhost} onClick={() => {
+                  const allOpen = activeEmployees.every((e) => expandedShiftDetail[e.id]);
+                  setExpandedShiftDetail((prev) => {
+                    const next = { ...prev };
+                    activeEmployees.forEach((e) => { next[e.id] = !allOpen; });
+                    return next;
+                  });
+                }}>
+                  {activeEmployees.every((e) => expandedShiftDetail[e.id]) ? "Collapse all notes" : "Expand all notes"}
+                </button>
+              </div>
+
+
+              <div className="sb-table" style={{ overflowX: "auto", marginTop: 18 }}>
+                <table style={S.tableStyle}>
+                  <thead>
+                    <tr>
+                      <th style={S.thStyle}>Name</th>
+                      <CopyableHeader label="Hrly" fullWord="Hourly" T={T} />
+                      <CopyableHeader label="Aft" fullWord="Afternoon" T={T} />
+                      <CopyableHeader label="Night" fullWord="Night" T={T} />
+                      <CopyableHeader label="Sat" fullWord="Saturday" T={T} />
+                      <CopyableHeader label="Sun" fullWord="Sunday" T={T} />
+                      <CopyableHeader label="PH" fullWord="Public Holiday" T={T} />
+                      <CopyableHeader label="OT<2" fullWord="Overtime under 2hrs" T={T} />
+                      <CopyableHeader label="OT2+" fullWord="Overtime over 2hrs" T={T} />
+                      <th style={S.thStyle}>Total hrs</th><th style={S.thStyle}>Km this wk</th>
+                      <th style={S.thStyle}>Breaks ×{money(allowances.break1)}</th><th style={S.thStyle}>Breaks ×{money(allowances.break2)}</th>
+                      <th style={S.thStyle}>Sleepovers</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {perEmployee.map((e) => {
+                      const lvl = levels[e.level] || levels.l21;
+                      if (!e.hasShifts) {
+                        return (
+                          <tr key={e.id} style={{ opacity: 0.45 }}>
+                            <td style={{ ...S.tdStyle, fontWeight: 600 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                                <span style={{ width: 13, height: 13, flexShrink: 0, display: "inline-block" }} />
+                                <span>{e.name}</span>
+                              </div>
+                              <div style={{ fontSize: 10, color: T.textFaint, fontWeight: 400, marginLeft: 18 }}>{lvl.label}</div>
+                            </td>
+                            <td colSpan={13} style={{ ...S.tdStyle, fontStyle: "italic", color: T.textFaint }}>No shifts this week</td>
+                          </tr>
+                        );
+                      }
+                      const detailOpen = !!expandedShiftDetail[e.id];
+                      const weekKmAuto = weeklyKmAutoFor(e.id);
+                      return (
+                      <React.Fragment key={e.id}>
+                      <tr>
+                        <td style={{ ...S.tdStyle, fontWeight: 600 }}>
+                          <button onClick={() => setExpandedShiftDetail((prev) => ({ ...prev, [e.id]: !prev[e.id] }))}
+                            style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
+                            <ChevronDown size={13} style={{ transform: detailOpen ? "rotate(180deg)" : "rotate(-90deg)", transition: "transform 0.2s ease", color: T.textDim, flexShrink: 0 }} />
+                            <span>{e.name}</span>
+                          </button>
+                          <div style={{ fontSize: 10, color: T.textFaint, fontWeight: 400, marginLeft: 18 }}>{lvl.label}</div>
+                        </td>
+                        <HourCell hours={e.buckets.weekday} rate={lvl.hourly} levelKey={e.level} field="hourly" updateLevelRate={updateLevelRate} employeeId={e.id} bucketKey="weekday" hourOverride={hourOverride} setHourOverride={setHourOverride} T={T} />
+                        <HourCell hours={e.buckets.afternoon} rate={lvl.afternoon} levelKey={e.level} field="afternoon" updateLevelRate={updateLevelRate} employeeId={e.id} bucketKey="afternoon" hourOverride={hourOverride} setHourOverride={setHourOverride} T={T} />
+                        <HourCell hours={e.buckets.night} rate={lvl.night} levelKey={e.level} field="night" updateLevelRate={updateLevelRate} employeeId={e.id} bucketKey="night" hourOverride={hourOverride} setHourOverride={setHourOverride} T={T} />
+                        <HourCell hours={e.buckets.saturday} rate={lvl.saturday} levelKey={e.level} field="saturday" updateLevelRate={updateLevelRate} employeeId={e.id} bucketKey="saturday" hourOverride={hourOverride} setHourOverride={setHourOverride} T={T} />
+                        <HourCell hours={e.buckets.sunday} rate={lvl.sunday} levelKey={e.level} field="sunday" updateLevelRate={updateLevelRate} employeeId={e.id} bucketKey="sunday" hourOverride={hourOverride} setHourOverride={setHourOverride} T={T} />
+                        <HourCell hours={e.buckets.publicHoliday} rate={lvl.publicHoliday} levelKey={e.level} field="publicHoliday" updateLevelRate={updateLevelRate} employeeId={e.id} bucketKey="publicHoliday" hourOverride={hourOverride} setHourOverride={setHourOverride} T={T} />
+                        <HourCell hours={e.buckets.otTier1} rate={lvl.otTier1} levelKey={e.level} field="otTier1" updateLevelRate={updateLevelRate} employeeId={e.id} bucketKey="otTier1" hourOverride={hourOverride} setHourOverride={setHourOverride} T={T} />
+                        <HourCell hours={e.buckets.otTier2} rate={lvl.otTier2} levelKey={e.level} field="otTier2" updateLevelRate={updateLevelRate} employeeId={e.id} bucketKey="otTier2" hourOverride={hourOverride} setHourOverride={setHourOverride} T={T} />
+                        <td style={{ ...S.tdStyle, fontWeight: 600 }}>{e.totalHours.toFixed(2)}</td>
+                        <td style={S.tdStyle}>
+                          <ClickCopyEdit
+                            value={weeklyKmFor(e.id)}
+                            displayText={`${weeklyKmFor(e.id)} km`}
+                            copyText={weeklyKmFor(e.id)}
+                            onCommit={(v) => setWeeklyKmOverride((prev) => ({ ...prev, [e.id]: v }))}
+                            inputType="number" inputStep="1"
+                            width={68}
+                            displayStyle={{ fontWeight: 600, color: T.text, fontSize: 13 }}
+                            T={T}
+                          />
+                          {(() => {
+                            const threshold = kmSettings.threshold || 5000;
+                            const crosses = e.kmInfo.startYTD < threshold && e.kmInfo.endYTD >= threshold;
+                            if (crosses) return <div style={{ fontSize: 10, color: T.warn, fontWeight: 700, marginTop: 3, maxWidth: 80, lineHeight: 1.3 }}>⚠ crosses 5,000km — update Payroller rate</div>;
+                            const over = e.kmInfo.startYTD >= threshold;
+                            return <span style={{ display: "inline-block", marginTop: 3, fontSize: 10.5, fontWeight: 700, background: T.warnSoft, color: T.warn, borderRadius: 4, padding: "1px 5px" }}>{over ? "99¢/km" : "8¢+91¢/km"}</span>;
+                          })()}
+                          {kmCandidatesFor(e.id).filter((c) => !approvedKmCandidates[c.id]).map((c) => (
+                            <div key={c.id} style={{ marginTop: 4, maxWidth: 150, background: T.accentSoft, border: `1px solid ${T.cardBorder}`, borderRadius: 6, padding: "5px 7px" }}>
+                              <div style={{ fontSize: 10, fontStyle: "italic", color: T.textFaint, lineHeight: 1.4 }}>❝{contextSnippet(c.note, c.start)}❞</div>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: T.text, marginTop: 4 }}>Add {c.value}km to this week's total?</div>
+                              <div style={{ display: "flex", gap: 6, marginTop: 5 }}>
+                                <button className="sb-btn-hover" onClick={() => setApprovedKmCandidates((prev) => ({ ...prev, [c.id]: "approved" }))} style={{ ...S.btnGhost, fontSize: 10.5, padding: "2px 8px", color: T.good, borderColor: T.good }}>Yes</button>
+                                <button className="sb-btn-hover" onClick={() => setApprovedKmCandidates((prev) => ({ ...prev, [c.id]: "rejected" }))} style={{ ...S.btnGhost, fontSize: 10.5, padding: "2px 8px" }}>No</button>
+                              </div>
+                            </div>
+                          ))}
+                        </td>
+                        <td style={S.tdStyle}>
+                          {(() => { const c1 = breakOverride[e.id]?.count1 ?? e.breakInfo.count1; return (
+                          <ClickCopyEdit
+                            value={c1}
+                            displayText={String(c1)}
+                            copyText={c1}
+                            onCommit={() => {}}
+                            width={48}
+                            displayStyle={c1 > 0 ? { fontWeight: 700, color: T.warn, fontSize: 13, background: T.warnSoft, borderRadius: 6, padding: "2px 8px" } : { fontWeight: 600, color: T.text, fontSize: 13 }}
+                            T={T}
+                            renderEditor={({ commit }) => (
+                              <StepperInput autoFocus onBlur={commit} value={String(c1)}
+                                onChange={(v) => setBreakOverride((prev) => ({ ...prev, [e.id]: { ...prev[e.id], count1: parseInt(v, 10) || 0, count2: prev[e.id]?.count2 ?? e.breakInfo.count2 } }))}
+                                T={T} width={48} />
+                            )}
+                          />
+                          ); })()}
+                        </td>
+                        <td style={S.tdStyle}>
+                          {(() => { const c2 = breakOverride[e.id]?.count2 ?? e.breakInfo.count2; return (
+                          <ClickCopyEdit
+                            value={c2}
+                            displayText={String(c2)}
+                            copyText={c2}
+                            onCommit={() => {}}
+                            width={48}
+                            displayStyle={c2 > 0 ? { fontWeight: 700, color: T.warn, fontSize: 13, background: T.warnSoft, borderRadius: 6, padding: "2px 8px" } : { fontWeight: 600, color: T.text, fontSize: 13 }}
+                            T={T}
+                            renderEditor={({ commit }) => (
+                              <StepperInput autoFocus onBlur={commit} value={String(c2)}
+                                onChange={(v) => setBreakOverride((prev) => ({ ...prev, [e.id]: { count1: prev[e.id]?.count1 ?? e.breakInfo.count1, count2: parseInt(v, 10) || 0 } }))}
+                                T={T} width={48} />
+                            )}
+                          />
+                          ); })()}
+                        </td>
+                        <td style={S.tdStyle}>
+                          {(() => { const sc = sleepoverOverride[e.id] !== undefined && sleepoverOverride[e.id] !== "" ? parseInt(sleepoverOverride[e.id], 10) || 0 : e.sleepInfo.autoCount; return (
+                          <ClickCopyEdit
+                            value={sc}
+                            displayText={String(sc)}
+                            copyText={sc}
+                            onCommit={() => {}}
+                            width={48}
+                            displayStyle={sc > 0 ? { fontWeight: 700, color: T.warn, fontSize: 13, background: T.warnSoft, borderRadius: 6, padding: "2px 8px" } : { fontWeight: 600, color: T.text, fontSize: 13 }}
+                            T={T}
+                            renderEditor={({ commit }) => (
+                              <StepperInput autoFocus onBlur={commit} value={sleepoverOverride[e.id] ?? ""} placeholder={String(e.sleepInfo.autoCount)}
+                                onChange={(v) => setSleepoverOverride((prev) => ({ ...prev, [e.id]: v }))}
+                                T={T} width={48} />
+                            )}
+                          />
+                          ); })()}
+                          {e.sleepInfo.quotes.length > 0 && (
+                            <div style={S.quoteStyle}>
+                              {expandedSleepNotes[e.id] ? (
+                                <>
+                                  {e.sleepInfo.quotes.map((q, i) => <div key={i} style={{ marginBottom: 3 }}>❝{q}❞</div>)}
+                                  <button className="sb-btn-hover" onClick={() => setExpandedSleepNotes((prev) => ({ ...prev, [e.id]: false }))} style={{ ...S.btnGhost, fontSize: 10.5 }}>Show less</button>
+                                </>
+                              ) : (
+                                <>
+                                  <div>❝{shortText(e.sleepInfo.quotes[0], 90)}❞</div>
+                                  {(e.sleepInfo.quotes.length > 1 || e.sleepInfo.quotes[0].length > 90) && (
+                                    <button className="sb-btn-hover" onClick={() => setExpandedSleepNotes((prev) => ({ ...prev, [e.id]: true }))} style={{ ...S.btnGhost, fontSize: 10.5 }}>
+                                      {e.sleepInfo.quotes.length > 1 ? `+${e.sleepInfo.quotes.length - 1} more — show all` : "Show full note"}
+                                    </button>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td colSpan={14} style={{ padding: 0, borderBottom: detailOpen ? `1px solid ${T.divider}` : "none" }}>
+                          <CollapseBody open={detailOpen}>
+                            <div style={{ background: T.card, border: `1px solid ${T.cardBorder}`, borderRadius: 10, padding: 12, margin: "0 4px 10px" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+                                {weekKmAuto > 0 && <span style={S.chipStyle}>{weekKmAuto}km</span>}
+                                {e.breakInfo.count > 0 && <span style={S.chipStyle}>{e.breakInfo.count} break{e.breakInfo.count === 1 ? "" : "s"}</span>}
+                                {e.sleepInfo.autoCount > 0 && <span style={S.chipStyle}>{e.sleepInfo.autoCount} sleepover{e.sleepInfo.autoCount === 1 ? "" : "s"}</span>}
+                              </div>
+                              <div className="sb-table" style={{ overflowX: "auto" }}>
+                                <table style={{ ...S.tableStyle, tableLayout: "fixed" }}>
+                                  <colgroup>
+                                    <col style={{ width: 118 }} /><col style={{ width: 76 }} /><col style={{ width: 76 }} />
+                                    <col style={{ width: 66 }} /><col style={{ width: 190 }} /><col />
+                                  </colgroup>
+                                  <thead>
+                                    <tr>
+                                      <th style={S.thStyle}>Date</th><th style={S.thStyle}>In</th><th style={S.thStyle}>Out</th>
+                                      <th style={{ ...S.thStyle, textAlign: "right" }}>Raw hrs</th><th style={S.thStyle}>Rate split (pre-OT)</th><th style={S.thStyle}>Notes</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {(() => {
+                                      const sorted = e.shifts.slice().sort((a, b) => (a.dateISO || "").localeCompare(b.dateISO || ""));
+                                      const groups = [];
+                                      let curDate = null, curGroup = null;
+                                      for (const s of sorted) {
+                                        if (s.dateISO !== curDate) { curGroup = { dateISO: s.dateISO, shifts: [] }; groups.push(curGroup); curDate = s.dateISO; }
+                                        curGroup.shifts.push(s);
+                                      }
+                                      return groups.map((g, gi) => {
+                                        const dayTotal = g.shifts.reduce((a, s) => a + s.hours, 0);
+                                        const first = g.shifts[0];
+                                        const isPH = first.dateISO && holidaySet.has(first.dateISO);
+                                        const isPenaltyDay = first.day === "Saturday" || first.day === "Sunday" || isPH;
+                                        return (
+                                          <React.Fragment key={g.dateISO || gi}>
+                                            {g.shifts.map((s, i) => {
+                                              const parts = splitSegmentByWindow(s, holidaySet);
+                                              const dotColor = isPH ? T.warn : isPenaltyDay ? T.accent : "transparent";
+                                              return (
+                                                <tr key={i}>
+                                                  <td style={S.tdStyle}>
+                                                    {i === 0 && (
+                                                      <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                                                        {isPenaltyDay && <span style={{ width: 6, height: 6, borderRadius: "50%", background: dotColor, flexShrink: 0 }} />}
+                                                        <span style={{ fontWeight: 600 }}>{formatDateSmart(s.dateISO, s.day)}</span>
+                                                        {isPenaltyDay && <span style={{ fontSize: 10, color: T.textFaint }}>{isPH ? "PH" : s.day}</span>}
+                                                      </span>
+                                                    )}
+                                                  </td>
+                                                  <td style={S.tdStyle}>{s.firstInMin != null ? minutesToTimeStr(s.firstInMin) : "—"}</td>
+                                                  <td style={S.tdStyle}>{s.lastOutMin != null ? minutesToTimeStr(s.lastOutMin) : "—"}</td>
+                                                  <td style={{ ...S.tdStyle, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{s.hours.toFixed(2)}</td>
+                                                  <td style={{ ...S.tdStyle, fontSize: 12 }}>
+                                                    {parts.map((p, pi) => (
+                                                      <span key={pi}>
+                                                        {pi > 0 && <span style={{ color: T.textFaint, margin: "0 4px" }}>+</span>}
+                                                        <strong style={{ color: T.text }}>{p.hours.toFixed(2)}h</strong>{" "}
+                                                        <span style={{ color: T.textDim }}>{DAY_TYPE_SHORT[p.dayType] || p.dayType}</span>
+                                                      </span>
+                                                    ))}
+                                                  </td>
+                                                  <td style={{ ...S.tdStyle, fontSize: 11.5 }}>
+                                                    {(s.notes || []).length ? s.notes.map((n, ni) => <div key={ni} style={{ marginBottom: ni < s.notes.length - 1 ? 3 : 0 }}><HighlightedNote note={n} T={T} /></div>) : "—"}
+                                                  </td>
+                                                </tr>
+                                              );
+                                            })}
+                                            <tr>
+                                              <td colSpan={6} style={{ padding: "5px 9px 9px", fontSize: 11.5, color: T.textDim, borderTop: `1px solid ${T.divider}` }}>
+                                                {(() => {
+                                                  const isSaturday = first.day === "Saturday" && !isPH;
+                                                  const isSunOrPH = (first.day === "Sunday" || isPH) && first.day !== "Saturday";
+                                                  let otPhrase = null, plainNote;
+                                                  if (isSunOrPH) {
+                                                    plainNote = `${isPH ? "public holiday" : "Sunday"} — no daily overtime rule, paid in full`;
+                                                  } else if (isSaturday) {
+                                                    if (dayTotal > 12) otPhrase = `${(dayTotal - 12).toFixed(2)}h over 12hrs → over-2hrs OT rate`;
+                                                    else plainNote = "no OT until past 12 hours on a Saturday";
+                                                  } else {
+                                                    if (dayTotal > 10) otPhrase = `${(dayTotal - 10).toFixed(2)}h over 10hrs → overtime`;
+                                                  }
+                                                  return (
+                                                    <>
+                                                      <strong style={{ color: T.text, fontWeight: 700 }}>Day total {dayTotal.toFixed(2)}h</strong>
+                                                      {otPhrase && <span style={{ background: T.warnSoft, color: T.warn, borderRadius: 3, padding: "1px 5px", marginLeft: 7, fontWeight: 700 }}>{otPhrase}</span>}
+                                                      {plainNote && <span style={{ marginLeft: 7 }}>— {plainNote}</span>}
+                                                    </>
+                                                  );
+                                                })()}
+                                              </td>
+                                            </tr>
+                                          </React.Fragment>
+                                        );
+                                      });
+                                    })()}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          </CollapseBody>
+                        </td>
+                      </tr>
+                      </React.Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {kmThresholdCrossers.length > 0 && (
+                <div style={{ marginTop: 14, background: T.warnSoft, border: `1px solid ${T.warn}55`, borderRadius: 10, padding: "10px 12px", fontSize: 12.5, color: T.warn, fontWeight: 600 }}>
+                  ⚠ {kmThresholdCrossers.map((e) => e.name).join(", ")} {kmThresholdCrossers.length === 1 ? "crosses" : "cross"} 5,000km this week — remember to update {kmThresholdCrossers.length === 1 ? "their" : "their"} km rate in Payroller.
+                </div>
+              )}
+
+              <div className="sb-btnrow" style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap", alignItems: "center" }}>
+                <button className="sb-btn-hover" style={S.btnPrimary} onClick={commitSheet}><CheckCircle2 size={15} /> Commit this sheet</button>
+              </div>
+
+              <div style={{ marginTop: 22, paddingTop: 18, borderTop: `1px solid ${T.divider}` }}>
+                <div style={{ fontWeight: 700, fontSize: 13, color: T.text, marginBottom: 4 }}>Cross-check against Payroller</div>
+                <p style={{ fontSize: 12.5, color: T.textDim, marginTop: 4 }}>
+                  Once you've entered this week into Payroller, select all the payslips there, copy, and paste the text below — it'll check hours, rates, breaks and km's against what Jibble gave you, and total everything up so you can compare against the Jibble figure above.
+                </p>
+                <textarea value={payrollerPasteText} onChange={(ev) => setPayrollerPasteText(ev.target.value)} placeholder="Paste this week's Payroller payslip text here…" style={{ width: "100%", boxSizing: "border-box", minHeight: 150, marginTop: 8, background: T.inputBg, border: `1px solid ${T.inputBorder}`, borderRadius: 8, color: T.text, fontSize: 12.5, fontFamily: "inherit", padding: 10, resize: "none" }} />
+                <button className="sb-btn-hover" style={{ ...S.btnSecondary, marginTop: 8 }} onClick={computePayrollerComparison}>Compare</button>
+
+                {payrollerComparison && (
+                  <div style={{ marginTop: 16 }}>
+                    {(payrollerComparison.allMatch || (payrollerComparison.isFaithOnlyIssue && faithExceptionConfirmed === true)) && (
+                      <div className="sb-match-banner" style={{ marginBottom: 14, display: "flex", alignItems: "center", gap: 12, background: T.accentSoft, border: `1px solid ${T.good}66`, borderRadius: 10, padding: "12px 16px" }}>
+                        <CheckCircle2 size={24} style={{ color: T.good, flexShrink: 0 }} />
+                        <div>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: T.good }}>Everything matches ✓</div>
+                          <div style={{ fontSize: 12, color: T.textDim, marginTop: 1 }}>
+                            {payrollerComparison.isFaithOnlyIssue && faithExceptionConfirmed === true
+                              ? "Every hour, rate, km and allowance lines up — Faith's usual missing-from-Jibble hours are the only difference, and that's expected."
+                              : "Every hour, rate, km and allowance lines up between Jibble and Payroller — nothing to double-check this week."}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    {payrollerComparison.isFaithOnlyIssue && faithExceptionConfirmed === null && (
+                      <div style={{ marginBottom: 14, background: T.accentSoft, border: `1px solid ${T.cardBorder}`, borderRadius: 10, padding: "12px 16px" }}>
+                        <div style={{ fontSize: 13.5, fontWeight: 700, color: T.text }}>
+                          Everything else matches — the only gap is {payrollerComparison.faithRow.payroller.total.toFixed(2)}h for Faith Winfield in Payroller with nothing in Jibble.
+                        </div>
+                        <div style={{ fontSize: 12, color: T.textDim, marginTop: 4 }}>Is this the usual case where her hours don't make it into Jibble?</div>
+                        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                          <button className="sb-btn-hover" style={S.btnGhost} onClick={() => setFaithExceptionConfirmed(true)}>Yes, that's normal for her</button>
+                          <button className="sb-btn-hover" style={S.btnGhost} onClick={() => setFaithExceptionConfirmed(false)}>No, look into it</button>
+                        </div>
+                      </div>
+                    )}
+                    {payrollerComparison.isFaithOnlyIssue && faithExceptionConfirmed === false && (
+                      <div style={{ marginBottom: 14, background: T.warnSoft, border: `1px solid ${T.warn}55`, borderRadius: 10, padding: "10px 14px", fontSize: 12.5, color: T.warn, fontWeight: 600 }}>
+                        Noted — worth chasing up Faith's {payrollerComparison.faithRow.payroller.total.toFixed(2)}h with Jibble or whoever entered it in Payroller.
+                      </div>
+                    )}
+                    <div style={{ display: "flex", gap: 24, flexWrap: "wrap", marginBottom: 12 }}>
+                      <SummaryStat label="Jibble grand total" value={grandTotalHours.toFixed(2)} T={T} />
+                      <SummaryStat label="Payroller grand total" value={payrollerComparison.payrollerGrandTotal.toFixed(2)} T={T} />
+                      <div>
+                        <div style={{ fontSize: 11, color: T.textFaint, textTransform: "uppercase", letterSpacing: "0.04em" }}>Difference</div>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: closeEnough(grandTotalHours, payrollerComparison.payrollerGrandTotal, 0.1) ? T.good : T.warn }}>
+                          {(payrollerComparison.payrollerGrandTotal - grandTotalHours >= 0 ? "+" : "")}{(payrollerComparison.payrollerGrandTotal - grandTotalHours).toFixed(2)}h
+                        </div>
+                      </div>
+                    </div>
+
+                    {payrollerComparison.missingFromPayroller.length > 0 && (
+                      <div style={{ marginBottom: 10, background: T.missingPayrollerSoft, border: `1px solid ${T.cardBorder}`, borderRadius: 10, padding: "10px 12px" }}>
+                        <div style={{ fontSize: 11.5, fontWeight: 700, color: T.missingPayroller, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 5 }}>In Jibble, not found in the pasted Payroller text</div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                          {payrollerComparison.missingFromPayroller.map((e) => (
+                            <span key={e.id} style={{ fontSize: 10.5, background: T.missingPayrollerSoft, color: T.missingPayroller, border: `1px solid ${T.missingPayroller}55`, borderRadius: 999, padding: "3px 8px", fontWeight: 600 }}>{e.name}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {payrollerComparison.rows.filter((r) => !r.jibble).length > 0 && (
+                      <div style={{ marginBottom: 10, background: T.missingJibbleSoft, border: `1px solid ${T.cardBorder}`, borderRadius: 10, padding: "10px 12px" }}>
+                        <div style={{ fontSize: 11.5, fontWeight: 700, color: T.missingJibble, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 5 }}>In the Payroller text, not matched to anyone in Jibble this week</div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                          {payrollerComparison.rows.filter((r) => !r.jibble).map((r, i) => (
+                            <span key={i} style={{ fontSize: 10.5, background: T.missingJibbleSoft, color: T.missingJibble, border: `1px solid ${T.missingJibble}55`, borderRadius: 999, padding: "3px 8px", fontWeight: 600 }}>{r.payroller.name}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="sb-table" style={{ overflowX: "auto" }}>
+                      <table style={S.tableStyle}>
+                        <thead>
+                          <tr>
+                            <th style={S.thStyle}>Name</th><th style={S.thStyle}>Hrly</th><th style={S.thStyle}>Aft</th><th style={S.thStyle}>Night</th>
+                            <th style={S.thStyle}>Sat</th><th style={S.thStyle}>Sun</th><th style={S.thStyle}>PH</th><th style={S.thStyle}>OT&lt;2</th><th style={S.thStyle}>OT2+</th>
+                            <th style={S.thStyle}>Total</th><th style={S.thStyle}>Km</th><th style={S.thStyle}>Other units</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {payrollerComparison.rows.filter((r) => r.jibble).map((r) => {
+                            const j = r.jibble, p = r.payroller;
+                            const cell = (jv, pv, decimals = 2) => {
+                              const ok = closeEnough(jv, pv, decimals === 0 ? 0.5 : 0.02);
+                              return (
+                                <td style={{ ...S.tdStyle, color: ok ? T.text : T.warn, fontWeight: ok ? 400 : 700 }}>
+                                  {jv.toFixed(decimals)} / {pv.toFixed(decimals)}
+                                </td>
+                              );
+                            };
+                            const jOther = (j.breakInfo.count1 || 0) + (j.breakInfo.count2 || 0) + (j.sleepovers || 0);
+                            return (
+                              <tr key={j.id}>
+                                <td style={{ ...S.tdStyle, fontWeight: 600 }}>{j.name}</td>
+                                {cell(j.buckets.weekday, p.weekday)}
+                                {cell(j.buckets.afternoon, p.afternoon)}
+                                {cell(j.buckets.night, p.night)}
+                                {cell(j.buckets.saturday, p.saturday)}
+                                {cell(j.buckets.sunday, p.sunday)}
+                                {cell(j.buckets.publicHoliday, p.publicHoliday)}
+                                {cell(j.buckets.otTier1, p.otTier1)}
+                                {cell(j.buckets.otTier2, p.otTier2)}
+                                {cell(j.totalHours, p.total)}
+                                {cell(Math.round(j.weekKm), p.km, 0)}
+                                {cell(jOther, p.otherAllowanceUnits, 0)}
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div style={{ fontSize: 11, color: T.textFaint, marginTop: 8 }}>Each cell reads Jibble / Payroller. Anything highlighted in orange is off by more than a rounding margin — worth a second look. "Other units" is breaks + sleepovers combined, since Payroller only shows one combined "Other - General" line.</div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          </CollapseBody>
+        </section>
+        )}
+
+        {/* Committed sheets ledger */}
+        {activeTab === "sec-committed" && (
+        <section id="sec-committed" className="sb-card" style={S.cardStyle}>
+          <SectionHeader id="sec-committed" title="Km's History" icon={Archive} T={T} open={sectionOpen["sec-committed"]} onToggle={() => toggleSection("sec-committed")} />
+          <CollapseBody open={sectionOpen["sec-committed"]}>
+          {committed && (
+            <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 10, background: T.accentSoft, border: `1px solid ${T.cardBorder}`, fontSize: 13, fontWeight: 600 }}>
+              <span style={{ color: T.good }}>✓ Sheet committed — km's added to each person's YTD.</span>{" "}
+              {committedBackupResult?.wroteToFolder ? (
+                <span style={{ color: T.good }}>Backup saved to "{backupDirName}" ✓</span>
+              ) : backupDirHandle ? (
+                <span style={{ color: T.warn }}>Backup downloaded instead — couldn't write to "{backupDirName}" this time, try clicking "Choose backup folder" again.</span>
+              ) : (
+                <span style={{ color: T.good }}>Backup downloaded ✓</span>
+              )}
+            </div>
+          )}
+          <p style={{ fontSize: 13, color: T.textDim, marginTop: 6 }}>Every committed week's km's, for cross-checking later. Click a period to see the per-person breakdown — figures are editable right here if you spot a mistake, and the correction rolls straight into km YTD.</p>
+          {committedSheets.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+              <button className="sb-btn-hover" style={{ ...S.btnGhost, color: confirmDeleteAllSheets ? T.warn : S.btnGhost.color }} onClick={() => {
+                if (!confirmDeleteAllSheets) { setConfirmDeleteAllSheets(true); setTimeout(() => setConfirmDeleteAllSheets(false), 4000); return; }
+                setConfirmDeleteAllSheets(false);
+                deleteAllSheets();
+              }}>
+                <Trash2 size={13} /> Delete all
+              </button>
+              {confirmDeleteAllSheets && <span style={{ fontSize: 11.5, color: T.warn, fontWeight: 600 }}>Click again to confirm — deletes all history</span>}
+              {confirmDeleteAllSheets && <button className="sb-btn-hover" style={S.btnGhost} onClick={() => setConfirmDeleteAllSheets(false)}>Cancel</button>}
+            </div>
+          )}
+          {committedSheets.length === 0 ? (
+            <p style={{ fontSize: 13, color: T.textDim, marginTop: 10 }}>Nothing committed yet.</p>
+          ) : (
+            <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+              {committedSheets.slice().sort((a, b) => (b.dateFrom || "").localeCompare(a.dateFrom || "")).map((sheet) => {
+                const people = Object.values(sheet.perEmployee).map((p, i) => ({ ...p, id: Object.keys(sheet.perEmployee)[i] }));
+                const totalKm = people.reduce((a, p) => a + (p.weekKm || 0), 0);
+                const open = !!expandedKmSheet[sheet.id];
+                return (
+                  <div key={sheet.id} style={{ border: `1px solid ${T.divider}`, borderRadius: 10, overflow: "hidden" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", background: T.accentSoft }}>
+                      <button onClick={() => setExpandedKmSheet((prev) => ({ ...prev, [sheet.id]: !prev[sheet.id] }))}
+                        style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
+                        <ChevronDown size={15} style={{ transform: open ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s ease", color: T.textDim, flexShrink: 0 }} />
+                        <span style={{ fontWeight: 700, fontSize: 12.5, color: T.text }}>{sheet.dateFrom} to {sheet.dateTo}</span>
+                        <span style={{ fontSize: 11, color: T.textFaint }}>{people.length} staff</span>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: T.accent, marginLeft: "auto", marginRight: 8 }}>{totalKm.toLocaleString()} km</span>
+                      </button>
+                      <IconButton icon={Trash2} label="Delete" onClick={() => deleteSheet(sheet.id)} T={T} />
+                    </div>
+                    {open && (
+                      <div className="sb-table" style={{ overflowX: "auto", padding: 10 }}>
+                        <table style={S.tableStyle}>
+                          <thead><tr><th style={S.thStyle}>Name</th><th style={S.thStyle}>Km this week</th><th style={S.thStyle}>Km YTD now</th></tr></thead>
+                          <tbody>
+                            {people.sort((a, b) => a.name.localeCompare(b.name)).map((p) => {
+                              const rosterPerson = roster.find((r) => r.id === p.id);
+                              return (
+                                <tr key={p.id}>
+                                  <td style={{ ...S.tdStyle, fontWeight: 600 }}>{p.name}</td>
+                                  <td style={S.tdStyle}>
+                                    <input type="number" step="1" min="0" value={p.weekKm} onChange={(ev) => editSheetKm(sheet.id, p.id, ev.target.value)} style={{ ...S.inputStyle, width: 70 }} />
+                                  </td>
+                                  <td style={S.tdStyle}>{rosterPerson ? rosterPerson.kmYTD.toLocaleString() : "—"} km</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <div className="sb-btnrow" style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 14, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", flexDirection: "column", fontSize: 11, color: T.textDim }}>
+              Financial year
+              <Dropdown value={exportFY} onChange={(v) => setExportFY(v)} options={fyOptions} T={T} width={130} />
+            </div>
+            <button className="sb-btn-hover" style={S.btnSecondary} onClick={exportFYPDF}><Download size={14} /> Download km summary (PDF)</button>
+          </div>
+          </CollapseBody>
+        </section>
+        )}
+
+        {/* Module A: roster, rates & km status */}
+        {activeTab === "sec-roster" && (
+        <section id="sec-roster" className="sb-card" style={S.cardStyle}>
+          <SectionHeader id="sec-roster" title="Employee Rates/km's" icon={Users} T={T} open={sectionOpen["sec-roster"]} onToggle={() => toggleSection("sec-roster")} />
+          <CollapseBody open={sectionOpen["sec-roster"]}>
+          <p style={{ fontSize: 13, color: T.textDim, marginTop: 6 }}>
+            Current level, the rates that apply, and where each person sits against the {kmSettings.threshold?.toLocaleString?.() || kmSettings.threshold}km
+            threshold (under = {money(kmSettings.underTaxable)}/km taxable + {money(kmSettings.underExempt)}/km exempt, over = {money(kmSettings.overExempt)}/km exempt).
+          </p>
+          <div className="sb-table" style={{ overflowX: "auto", marginTop: 12 }}>
+            <table style={S.tableStyle}>
+              <thead>
+                <tr>
+                  <th style={S.thStyle}>Name</th><th style={S.thStyle}>Level</th><th style={S.thStyle}>Hourly</th>
+                  <th style={S.thStyle}>Afternoon</th><th style={S.thStyle}>Night</th><th style={S.thStyle}>Saturday</th>
+                  <th style={S.thStyle}>Sunday</th><th style={S.thStyle}>Public holiday</th><th style={S.thStyle}>Km YTD</th>
+                  <th style={S.thStyle}>Km rate now</th><th style={S.thStyle}>Km to threshold</th>
+                </tr>
+              </thead>
+              <tbody>
+                {roster.map((p) => {
+                  const lvl = levels[p.level] || levels.l21;
+                  const over = p.kmYTD >= (kmSettings.threshold || 5000);
+                  const remaining = Math.max(0, (kmSettings.threshold || 5000) - p.kmYTD);
+                  return (
+                    <tr key={p.id}>
+                      <td style={{ ...S.tdStyle, fontWeight: 600 }}>{p.name}{p.flatRateOnly && <span style={S.badgeStyle}>flat rate only</span>}</td>
+                      <td style={S.tdStyle}>{lvl.label}</td>
+                      <td style={S.tdStyle}>{lvl.flat ? "—" : <ClickCopyEdit value={lvl.hourly} displayText={money(lvl.hourly)} copyText={lvl.hourly} editable={false} T={T} width={64} />}</td>
+                      <td style={S.tdStyle}>{lvl.flat ? "—" : <ClickCopyEdit value={lvl.afternoon} displayText={money(lvl.afternoon)} copyText={lvl.afternoon} editable={false} T={T} width={64} />}</td>
+                      <td style={S.tdStyle}>{lvl.flat ? "—" : <ClickCopyEdit value={lvl.night} displayText={money(lvl.night)} copyText={lvl.night} editable={false} T={T} width={64} />}</td>
+                      <td style={S.tdStyle}>{lvl.flat ? "—" : <ClickCopyEdit value={lvl.saturday} displayText={money(lvl.saturday)} copyText={lvl.saturday} editable={false} T={T} width={64} />}</td>
+                      <td style={S.tdStyle}>{lvl.flat ? "—" : <ClickCopyEdit value={lvl.sunday} displayText={money(lvl.sunday)} copyText={lvl.sunday} editable={false} T={T} width={64} />}</td>
+                      <td style={S.tdStyle}>{lvl.flat ? <ClickCopyEdit value={lvl.hourly} displayText={money(lvl.hourly)} copyText={lvl.hourly} editable={false} T={T} width={64} /> : <ClickCopyEdit value={lvl.publicHoliday} displayText={money(lvl.publicHoliday)} copyText={lvl.publicHoliday} editable={false} T={T} width={64} />}</td>
+                      <td style={S.tdStyle}>{p.kmYTD?.toLocaleString?.() ?? p.kmYTD} km</td>
+                      <td style={{ ...S.tdStyle, fontWeight: 600, color: over ? T.warn : T.good }}>{over ? `${money(kmSettings.overExempt)}/km exempt` : `${money(kmSettings.underTaxable)}+${money(kmSettings.underExempt)}/km`}</td>
+                      <td style={S.tdStyle}>{over ? "over threshold" : `${remaining.toLocaleString()} km left`}</td>
+                    </tr>
+                  );
+                    })}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <th style={S.thStyle}>Name</th><th style={S.thStyle}>Level</th><th style={S.thStyle}>Hourly</th>
+                  <th style={S.thStyle}>Afternoon</th><th style={S.thStyle}>Night</th><th style={S.thStyle}>Saturday</th>
+                  <th style={S.thStyle}>Sunday</th><th style={S.thStyle}>Public holiday</th><th style={S.thStyle}>Km YTD</th>
+                  <th style={S.thStyle}>Km rate now</th><th style={S.thStyle}>Km to threshold</th>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          </CollapseBody>
+        </section>
+        )}
+        {activeTab === "sec-rates" && (
+        <section id="sec-rates" className="sb-card" style={S.cardStyle}>
+          <SectionHeader id="sec-rates" title="Edit Employee rates/km's" icon={Wallet} T={T} open={sectionOpen["sec-rates"]} onToggle={() => toggleSection("sec-rates")} />
+          <CollapseBody open={sectionOpen["sec-rates"]}>
+          <div className="sb-table" style={{ overflowX: "auto", marginTop: 12 }}>
+            <table style={S.tableStyle}>
+              <thead><tr><th style={S.thStyle}></th><th style={S.thStyle}>Level</th>{RATE_FIELDS.map((f) => <th style={S.thStyle} key={f}>{RATE_FIELD_LABELS[f]}</th>)}<th style={S.thStyle}></th></tr></thead>
+              <tbody>
+                {levelOrder.map((lk) => {
+                  const lvl = levels[lk];
+                  const isOver = dragOverKey === lk;
+                  return (
+                    <tr key={lk}
+                      draggable
+                      onDragStart={() => setDragLevelKey(lk)}
+                      onDragOver={(ev) => {
+                        ev.preventDefault();
+                        const rect = ev.currentTarget.getBoundingClientRect();
+                        const pos = ev.clientY < rect.top + rect.height / 2 ? "before" : "after";
+                        setDragOverKey(lk);
+                        setDragOverPos(pos);
+                      }}
+                      onDragLeave={() => { if (dragOverKey === lk) { setDragOverKey(null); setDragOverPos(null); } }}
+                      onDrop={(ev) => { ev.preventDefault(); if (dragLevelKey) moveLevel(dragLevelKey, lk, dragOverPos); setDragLevelKey(null); setDragOverKey(null); setDragOverPos(null); }}
+                      onDragEnd={() => { setDragLevelKey(null); setDragOverKey(null); setDragOverPos(null); }}
+                      style={{
+                        opacity: dragLevelKey === lk ? 0.35 : 1, cursor: "grab",
+                        boxShadow: isOver && dragOverPos === "before" ? `inset 0 3px 0 0 ${T.accent}` : isOver && dragOverPos === "after" ? `inset 0 -3px 0 0 ${T.accent}` : "none",
+                      }}>
+                      <td style={{ ...S.tdStyle, color: T.textFaint, width: 20, textAlign: "center", cursor: "grab" }}>⠿</td>
+                      <td style={{ ...S.tdStyle, fontWeight: 600 }}>{lvl.label}</td>
+                      {lvl.flat ? (
+                        <td style={S.tdStyle} colSpan={RATE_FIELDS.length}>
+                          <RateInput value={lvl.hourly} onChange={(v) => applyFlatToAll(lk, v)} T={T} />
+                          <span style={{ fontSize: 12, color: T.textDim, marginLeft: 8 }}>applies to every hour</span>
+                        </td>
+                      ) : RATE_FIELDS.map((f) => (
+                        <td style={S.tdStyle} key={f}><RateInput value={lvl[f]} onChange={(v) => updateLevelRate(lk, f, v)} T={T} /></td>
+                      ))}
+                      <td style={S.tdStyle}><IconButton icon={Trash2} label="Remove" onClick={() => removeLevel(lk)} T={T} /></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ fontSize: 11, color: T.textFaint, marginTop: 6 }}>Drag the ⠿ handle to reorder levels — a blue line shows where it'll land.</div>
+          <div className="sb-btnrow" style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <input type="text" placeholder="New level name (e.g. Level 3.1)" value={newLevelName} onChange={(e) => setNewLevelName(e.target.value)} style={{ ...S.inputStyle, width: 200 }} />
+            <button className="sb-btn-hover" style={S.btnSecondary} onClick={() => { if (newLevelName.trim()) { addLevel(newLevelName); setNewLevelName(""); } }}><Plus size={14} /> Add level</button>
+          </div>
+
+          <div style={{ display: "flex", gap: 28, flexWrap: "wrap", marginTop: 22 }}>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 8 }}>Km reimbursement</div>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                <LabeledRateInput label="Under threshold — taxable $/km" value={kmSettings.underTaxable} onChange={(v) => updateKmSetting("underTaxable", v)} wide T={T} />
+                <LabeledRateInput label="Under threshold — exempt $/km" value={kmSettings.underExempt} onChange={(v) => updateKmSetting("underExempt", v)} wide T={T} />
+                <LabeledRateInput label="Over threshold — exempt $/km" value={kmSettings.overExempt} onChange={(v) => updateKmSetting("overExempt", v)} wide T={T} />
+                <LabeledRateInput label="Threshold (km/FY)" value={kmSettings.threshold} onChange={(v) => updateKmSetting("threshold", v)} wide T={T} />
+              </div>
+            </div>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 8 }}>Allowances <span style={{ fontWeight: 400, color: T.textDim }}>(business-wide, every level)</span></div>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                <LabeledRateInput label="1 unpaid break $" value={allowances.break1} onChange={(v) => updateAllowance("break1", v)} wide T={T} />
+                <LabeledRateInput label="2 unpaid breaks $" value={allowances.break2} onChange={(v) => updateAllowance("break2", v)} wide T={T} />
+                <LabeledRateInput label="Sleepover $/night" value={allowances.sleepover} onChange={(v) => updateAllowance("sleepover", v)} wide T={T} />
+              </div>
+            </div>
+          </div>
+
+          <div style={{ marginTop: 24 }}>
+            <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 8 }}>Roster</div>
+            <div className="sb-table" style={{ overflowX: "auto" }}>
+              <table style={S.tableStyle}>
+                <thead><tr><th style={S.thStyle}></th><th style={S.thStyle}>Name</th><th style={S.thStyle}>Level</th><th style={S.thStyle}>Flat rate only</th><th style={S.thStyle}>Km YTD</th><th style={S.thStyle}></th></tr></thead>
+                <tbody>
+                  {roster.map((p) => {
+                    const isOver = dragOverRosterId === p.id;
+                    return (
+                    <tr key={p.id}
+                      draggable
+                      onDragStart={() => setDragRosterId(p.id)}
+                      onDragOver={(ev) => {
+                        ev.preventDefault();
+                        const rect = ev.currentTarget.getBoundingClientRect();
+                        const pos = ev.clientY < rect.top + rect.height / 2 ? "before" : "after";
+                        setDragOverRosterId(p.id);
+                        setDragOverRosterPos(pos);
+                      }}
+                      onDragLeave={() => { if (dragOverRosterId === p.id) { setDragOverRosterId(null); setDragOverRosterPos(null); } }}
+                      onDrop={(ev) => { ev.preventDefault(); if (dragRosterId) moveRosterMember(dragRosterId, p.id, dragOverRosterPos); setDragRosterId(null); setDragOverRosterId(null); setDragOverRosterPos(null); }}
+                      onDragEnd={() => { setDragRosterId(null); setDragOverRosterId(null); setDragOverRosterPos(null); }}
+                      style={{
+                        opacity: dragRosterId === p.id ? 0.35 : 1, cursor: "grab",
+                        boxShadow: isOver && dragOverRosterPos === "before" ? `inset 0 3px 0 0 ${T.accent}` : isOver && dragOverRosterPos === "after" ? `inset 0 -3px 0 0 ${T.accent}` : "none",
+                      }}>
+                      <td style={{ ...S.tdStyle, color: T.textFaint, width: 20, textAlign: "center", cursor: "grab" }}>⠿</td>
+                      <td style={S.tdStyle}><input type="text" value={p.name} onChange={(e) => updateRosterField(p.id, "name", e.target.value)} style={{ ...S.inputStyle, width: 160 }} /></td>
+                      <td style={S.tdStyle}>
+                        <Dropdown value={p.level} onChange={(v) => updateRosterField(p.id, "level", v)} options={levelOrder.map((lk) => ({ value: lk, label: levels[lk].label }))} T={T} width={140} />
+                      </td>
+                      <td style={S.tdStyle}><ToggleSwitch checked={!!p.flatRateOnly} onChange={(e) => updateRosterField(p.id, "flatRateOnly", e.target.checked)} T={T} /></td>
+                      <td style={S.tdStyle}><input type="number" step="1" value={p.kmYTD} onChange={(e) => updateRosterField(p.id, "kmYTD", parseFloat(e.target.value) || 0)} style={{ ...S.inputStyle, width: 80 }} /></td>
+                      <td style={S.tdStyle}><IconButton icon={Trash2} label="Remove" onClick={() => removeRosterMember(p.id)} T={T} /></td>
+                    </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ fontSize: 11, color: T.textFaint, marginTop: 6 }}>Drag the ⠿ handle to reorder.</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+              <button style={S.btnGhost} onClick={addRosterMember}><Plus size={14} /> Add employee</button>
+              <button className="sb-btn-hover" style={{ ...S.btnGhost, color: confirmKmReset ? T.warn : S.btnGhost.color }} onClick={resetAllKmToZero}>
+                <Trash2 size={13} /> Reset all km's to 0
+              </button>
+              {confirmKmReset && <span style={{ fontSize: 11.5, color: T.warn, fontWeight: 600 }}>Click again to confirm</span>}
+              {confirmKmReset && <button className="sb-btn-hover" style={S.btnGhost} onClick={() => setConfirmKmReset(false)}>Cancel</button>}
+            </div>
+          </div>
+
+          <div style={{ marginTop: 26 }}>
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+              <div style={{ fontWeight: 600, fontSize: 13.5 }}>Public holidays</div>
+              <a href={VIC_HOLIDAYS_URL} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, color: T.accent, textDecoration: "none" }}>
+                Official VIC dates on Business Victoria <ExternalLink size={12} />
+              </a>
+            </div>
+
+            {holidaysUndo && (
+              <div style={{ ...S.confirmBoxStyle, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 0, marginBottom: 12 }}>
+                <span style={{ fontSize: 12.5, color: T.text }}>{holidaysActionMsg}</span>
+                <button className="sb-btn-hover" style={S.btnSecondary} onClick={undoHolidays}>Undo</button>
+              </div>
+            )}
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 10 }}>
+              {holidaysByMonth.map((items, mIdx) => items.length === 0 ? null : (
+                <div key={mIdx} style={S.monthCardStyle}>
+                  <div style={S.monthHeaderStyle}>{MONTH_NAMES[mIdx]}</div>
+                  {items.map((h) => (
+                    <div key={h.date} style={S.holidayRowStyle}>
+                      <span style={{ fontWeight: 600, fontSize: 12.5 }}>{parseInt(h.date.split("-")[2], 10)} — {h.name}</span>
+                      <button className="sb-icon-btn" onClick={() => removeHoliday(h.date)} style={S.holidayXStyle} aria-label={`Remove ${h.name}`}><X size={15} /></button>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+            <div className="sb-btnrow" style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap", alignItems: "center" }}>
+              <input type="date" value={newHolidayDate} onChange={(e) => setNewHolidayDate(e.target.value)} style={S.inputStyle} />
+              <input type="text" placeholder="Holiday name" value={newHolidayName} onChange={(e) => setNewHolidayName(e.target.value)} style={{ ...S.inputStyle, width: 180 }} />
+              <button className="sb-btn-hover" style={S.btnSecondary} onClick={addHoliday}><Plus size={14} /> Add holiday</button>
+            </div>
+
+            <details style={{ marginTop: 16 }}>
+              <summary style={{ cursor: "pointer", fontSize: 13, color: T.accent, fontWeight: 600 }}>Load a fresh year's list (replaces everything below)</summary>
+              <p style={{ fontSize: 12.5, color: T.textDim, marginTop: 8 }}>
+                Open the <a href={VIC_HOLIDAYS_URL} target="_blank" rel="noopener noreferrer">Business Victoria public holidays page</a> for the year you need, select and copy the table, then paste it below.
+                This <strong>replaces your whole holiday list</strong> — the right move at the start of a new year. For a single one-off date, use "Add holiday" above instead.
+              </p>
+              <div style={{ display: "flex", gap: 8, alignItems: "flex-end", marginBottom: 8, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", flexDirection: "column", fontSize: 11, color: T.textDim }}>
+                  Year
+                  <Dropdown value={holidayImportYear} onChange={(v) => setHolidayImportYear(v)} options={yearOptions} T={T} width={110} />
+                </div>
+              </div>
+              <textarea value={holidayImportText} onChange={(e) => setHolidayImportText(e.target.value)} placeholder="Paste the copied holiday list here…"
+                style={{ width: "100%", height: 100, fontFamily: "ui-monospace, monospace", fontSize: 12, padding: 10, borderRadius: 8, border: `1px solid ${T.inputBorder}`, background: T.inputBg, color: T.text, boxSizing: "border-box" }} />
+              <button className="sb-btn-hover" style={{ ...S.btnSecondary, marginTop: 8 }} onClick={runHolidayImportParse}>Parse pasted list</button>
+
+              {holidayImportPreview && (
+                <div style={{ marginTop: 12 }}>
+                  {holidayImportPreview.length === 0 ? (
+                    <div style={{ fontSize: 13, color: T.warn }}>Couldn't find any dates in that text.</div>
+                  ) : (
+                    <>
+                      <div style={{ fontSize: 12.5, color: T.textDim, marginBottom: 6 }}>
+                        Found {holidayImportPreview.length} date{holidayImportPreview.length === 1 ? "" : "s"} — this is exactly what your holiday list will become. Dates already on your current list are marked, everything else is new:
+                      </div>
+                      <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, color: T.text, maxHeight: 180, overflowY: "auto" }}>
+                        {holidayImportPreview.map((h, i) => (
+                          <li key={i}>
+                            {h.date} — {h.name}{" "}
+                            {h.alreadyOnList ? <span style={{ color: T.textFaint }}>(already on your list)</span> : <span style={{ color: T.good, fontWeight: 600 }}>(new)</span>}
+                          </li>
+                        ))}
+                      </ul>
+                      <button className="sb-btn-hover" style={{ ...S.btnPrimary, marginTop: 10 }} onClick={applyHolidayImport}>Replace holiday list with these {holidayImportPreview.length}</button>
+                    </>
+                  )}
+                </div>
+              )}
+            </details>
+          </div>
+          </CollapseBody>
+        </section>
+        )}
+
+        {/* Award rate update */}
+        {activeTab === "sec-award" && (
+        <section id="sec-award" className="sb-card" style={S.cardStyle}>
+          <SectionHeader id="sec-award" title="Update rates from a Fair Work pay summary" icon={Landmark} T={T} open={sectionOpen["sec-award"]} onToggle={() => toggleSection("sec-award")} discreet hint="Usually only once a financial year" />
+          <CollapseBody open={sectionOpen["sec-award"]}>
+          <p style={{ fontSize: 13, color: T.textDim, marginTop: 6 }}>
+            Can't read a PDF's binary content directly — open it, select all the text, copy it, and paste it below.
+            Rate fields and the broken shift allowance are both checked: anything you're paying <em>below</em> the new
+            award gets flagged to bump; anything already <em>above</em> is left alone, just shown for review.
+          </p>
+          <textarea value={awardText} onChange={(e) => setAwardText(e.target.value)} placeholder="Paste the text copied from the Fair Work pay rates summary PDF…"
+            style={{ width: "100%", height: 110, marginTop: 10, fontFamily: "ui-monospace, monospace", fontSize: 12, padding: 10, borderRadius: 8, border: `1px solid ${T.inputBorder}`, background: T.inputBg, color: T.text, boxSizing: "border-box" }} />
+          <button className="sb-btn-hover" style={{ ...S.btnSecondary, marginTop: 8 }} onClick={runAwardParse}>Parse pasted text</button>
+
+          {awardParsed && !awardParsed.found && (
+            <div style={{ marginTop: 10, fontSize: 13, color: T.warn, fontWeight: 600 }}>Couldn't find any rates in that text — check it's a Fair Work Pay and Conditions Tool summary.</div>
+          )}
+
+          {awardParsed && awardParsed.found && (
+            <div style={{ marginTop: 14 }}>
+              <div style={{ fontSize: 13, marginBottom: 8, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <span>Detected <strong>{awardParsed.levelLabel || "a classification"}</strong>. Apply its hourly rates to:</span>
+                <Dropdown value={awardTargetLevel} onChange={(v) => { setAwardTargetLevel(v); setBumpSummary(null); }} placeholder="— choose your level —"
+                  options={levelOrder.filter((lk) => !levels[lk].flat).map((lk) => ({ value: lk, label: levels[lk].label }))} T={T} width={170} />
+              </div>
+
+              {awardMissingFields.length > 0 && (
+                <div style={{ marginBottom: 12, fontSize: 12.5, color: T.warn, background: T.warnSoft, border: `1px solid ${T.warn}44`, borderRadius: 8, padding: "8px 10px" }}>
+                  Couldn't find a rate for: <strong>{awardMissingFields.join(", ")}</strong> in the pasted text — those won't be checked or changed. Worth confirming the paste includes the full summary.
+                </div>
+              )}
+
+              {awardDiff && awardTargetLevel && (
+                <>
+                  <div className="sb-table" style={{ overflowX: "auto" }}>
+                    <table style={S.tableStyle}>
+                      <thead><tr><th style={S.thStyle}>Rate</th><th style={S.thStyle}>Your current rate</th><th style={S.thStyle}>New award rate</th><th style={S.thStyle}>Action</th></tr></thead>
+                      <tbody>
+                        {awardDiff.map((row) => (
+                          <tr key={row.field}>
+                            <td style={S.tdStyle}>{row.label}</td>
+                            <td style={S.tdStyle}>{money(row.current)}</td>
+                            <td style={S.tdStyle}>{money(row.award)}</td>
+                            <td style={{ ...S.tdStyle, fontWeight: 600, color: row.action === "bump" ? T.warn : T.good }}>
+                              {row.action === "bump" ? `Below award — will bump to ${money(row.award)}` : `Already ${money(row.diff)} above award`}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {(() => {
+                    const bumpCount = awardDiff.filter((r) => r.action === "bump").length;
+                    const aboveCount = awardDiff.length - bumpCount;
+                    return (
+                      <div style={{ fontSize: 12.5, color: T.textDim, marginTop: 10 }}>
+                        {bumpCount === 0 ? `Nothing to change — all ${aboveCount} rate(s) checked are already at or above the new award.` : `Pressing "Apply changes" will update ${bumpCount} rate${bumpCount === 1 ? "" : "s"} on ${levels[awardTargetLevel]?.label}; ${aboveCount} other${aboveCount === 1 ? "" : "s"} will stay exactly as they are.`}
+                      </div>
+                    );
+                  })()}
+
+                  <button className="sb-btn-hover" style={{ ...S.btnPrimary, marginTop: 12 }} onClick={applyAwardBumps} disabled={awardDiff.every((r) => r.action !== "bump")}>
+                    Apply changes to {levels[awardTargetLevel]?.label}
+                  </button>
+
+                  {bumpSummary && (
+                    <div style={S.confirmBoxStyle}>
+                      {bumpSummary.length === 0 ? <span style={{ color: T.textDim }}>No rates needed changing.</span> : (
+                        <>
+                          <div style={{ fontWeight: 600, color: T.text, marginBottom: 4 }}>Applied — here's exactly what changed:</div>
+                          <ul style={{ margin: 0, paddingLeft: 18, color: T.text }}>
+                            {bumpSummary.map((c, i) => <li key={i}>{c.label}: {money(c.from)} → {money(c.to)} <span style={{ color: T.good }}>(+{money(c.to - c.from)})</span></li>)}
+                          </ul>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {brokenShiftDiff && (
+                <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${T.divider}` }}>
+                  <div style={{ fontWeight: 600, fontSize: 13.5, marginBottom: 8 }}>Broken shift allowance <span style={{ fontWeight: 400, color: T.textDim }}>— applies to every level, checked separately</span></div>
+                  <div className="sb-table" style={{ overflowX: "auto" }}>
+                    <table style={S.tableStyle}>
+                      <thead><tr><th style={S.thStyle}>Allowance</th><th style={S.thStyle}>Your current rate</th><th style={S.thStyle}>New award rate</th><th style={S.thStyle}>Action</th></tr></thead>
+                      <tbody>
+                        <tr>
+                          <td style={S.tdStyle}>{brokenShiftDiff.label}</td>
+                          <td style={S.tdStyle}>{money(brokenShiftDiff.current)}</td>
+                          <td style={S.tdStyle}>{money(brokenShiftDiff.award)}</td>
+                          <td style={{ ...S.tdStyle, fontWeight: 600, color: brokenShiftDiff.action === "bump" ? T.warn : T.good }}>
+                            {brokenShiftDiff.action === "bump" ? `Below award — will bump to ${money(brokenShiftDiff.award)}` : `Already ${money(brokenShiftDiff.diff)} above award`}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <button className="sb-btn-hover" style={{ ...S.btnPrimary, marginTop: 12 }} onClick={applyBrokenShiftBump} disabled={brokenShiftDiff.action !== "bump"}>
+                    Apply to {brokenShiftDiff.field === "break2" ? "2-break" : "1-break"} allowance
+                  </button>
+                  {brokenShiftSummary && (
+                    <div style={S.confirmBoxStyle}>
+                      <span style={{ color: T.text }}>{brokenShiftSummary.label}: {money(brokenShiftSummary.from)} → {money(brokenShiftSummary.to)} <span style={{ color: T.good }}>(+{money(brokenShiftSummary.to - brokenShiftSummary.from)})</span></span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+          </CollapseBody>
+        </section>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================================
+   SMALL COMPONENTS
+   ========================================================================= */
+
+function fmtHrs(h) { return h ? h.toFixed(2) : "—"; }
+// Renders a shift note with the exact substring(s) that triggered km,
+// break, or sleepover detection visually marked, so it's obvious at a
+// glance which words the app actually keyed off — not just the raw text.
+function HighlightedNote({ note, T }) {
+  const patterns = [
+    { re: /\d+(?:\.\d+)?\s*k\s*ms?\b/gi, bg: T.accentSoft, fg: T.accent },
+    { re: /\d+\s*breaks?\s*(?:@|at)\s*\$?\d+(?:\.\d+)?/gi, bg: T.warnSoft, fg: T.warn },
+    { re: /sleepover|slept\s*over|overnight\s*stay/gi, bg: T.accentSoft, fg: T.good },
+  ];
+  const matches = [];
+  for (const p of patterns) {
+    let m;
+    p.re.lastIndex = 0;
+    while ((m = p.re.exec(note))) matches.push({ start: m.index, end: m.index + m[0].length, bg: p.bg, fg: p.fg });
+  }
+  if (matches.length === 0) return <>{note}</>;
+  matches.sort((a, b) => a.start - b.start);
+  const nodes = [];
+  let cursor = 0;
+  matches.forEach((mt, i) => {
+    if (mt.start < cursor) return; // skip overlapping match
+    if (mt.start > cursor) nodes.push(note.slice(cursor, mt.start));
+    nodes.push(
+      <span key={i} style={{ background: mt.bg, color: mt.fg, fontWeight: 700, borderRadius: 3, padding: "0 3px" }}>
+        {note.slice(mt.start, mt.end)}
+      </span>
+    );
+    cursor = mt.end;
+  });
+  if (cursor < note.length) nodes.push(note.slice(cursor));
+  return <>{nodes}</>;
+}
+
+function HourCell({ hours, rate, levelKey, field, updateLevelRate, employeeId, bucketKey, hourOverride, setHourOverride, T }) {
+  const isOverridden = !!(employeeId && bucketKey && hourOverride?.[employeeId]?.[bucketKey] !== undefined && hourOverride[employeeId][bucketKey] !== "");
+  return (
+    <td style={{ padding: "8px 9px", borderBottom: `1px solid ${T.divider}`, color: T.text }}>
+      <ClickCopyEdit
+        value={hours}
+        displayText={fmtHrs(hours)}
+        copyText={hours}
+        editable={!!(employeeId && bucketKey && setHourOverride)}
+        onCommit={(v) => setHourOverride((prev) => ({ ...prev, [employeeId]: { ...prev[employeeId], [bucketKey]: v } }))}
+        inputType="number" inputStep="0.01"
+        width={52}
+        displayStyle={{ fontSize: 14, color: isOverridden ? T.accent : T.text, fontWeight: isOverridden ? 700 : 400 }}
+        T={T}
+      />
+      <ClickCopyEdit
+        value={rate}
+        displayText={`@${money(rate)}`}
+        copyText={rate}
+        editable={!!(levelKey && field && updateLevelRate)}
+        onCommit={(v) => updateLevelRate(levelKey, field, parseFloat(v) || 0)}
+        inputType="number" inputStep="0.01"
+        width={68}
+        displayStyle={hours > 0 ? { fontSize: 12.5, color: T.accent, marginTop: 2, fontWeight: 600 } : { fontSize: 12.5, color: T.textFaint, marginTop: 2, fontWeight: 500 }}
+        T={T}
+      />
+    </td>
+  );
+}
+function shortText(s, len) { return s.length > len ? s.slice(0, len - 3) + "…" : s; }
+// Shows a window of text centred on where the candidate number actually
+// appears — so it's obvious at a glance why a number is ambiguous (e.g.
+// "...played 9 holes..." reads very differently from "...9km..." even
+// though both would be truncated the same way if we just showed the start
+// of a long note).
+function contextSnippet(note, pos, radius = 28) {
+  const start = Math.max(0, pos - radius);
+  const end = Math.min(note.length, pos + radius);
+  let out = note.slice(start, end).trim();
+  if (start > 0) out = "…" + out;
+  if (end < note.length) out = out + "…";
+  return out;
+}
+
+function SectionTitle({ title, icon: Icon, T }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      {Icon && <span style={{ display: "inline-flex", width: 30, height: 30, borderRadius: 9, alignItems: "center", justifyContent: "center", background: T.accentSoft, color: T.accent, flexShrink: 0 }}><Icon size={16} /></span>}
+      <h2 className="sb-sectiontitle" style={{ fontFamily: "ui-serif, Georgia, serif", fontSize: 19, fontWeight: 600, margin: 0, color: T.text }}>{title}</h2>
+    </div>
+  );
+}
+
+// Clickable section header — every section collapses/expands. `discreet`
+// renders a visually quieter version (smaller icon, muted colour, no serif
+// display font) for sections that don't need to draw the eye, plus an
+// optional small hint explaining why.
+function SectionHeader({ title, icon: Icon, T, open, onToggle, discreet, hint }) {
+  const iconSize = discreet ? 26 : 30;
+  return (
+    <button onClick={onToggle} aria-expanded={open} style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", boxSizing: "border-box" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+        {Icon && (
+          <span style={{ display: "inline-flex", width: iconSize, height: iconSize, borderRadius: 8, alignItems: "center", justifyContent: "center", background: discreet ? "transparent" : T.accentSoft, border: discreet ? `1px solid ${T.cardBorder}` : "none", color: discreet ? T.textDim : T.accent, flexShrink: 0 }}>
+            <Icon size={discreet ? 13 : 16} />
+          </span>
+        )}
+        <div style={{ minWidth: 0 }}>
+          {discreet ? (
+            <h2 className="sb-sectiontitle" style={{ fontFamily: "ui-sans-serif, system-ui, sans-serif", fontSize: 14.5, fontWeight: 600, margin: 0, color: T.textDim }}>{title}</h2>
+          ) : (
+            <h2 className="sb-sectiontitle" style={{ fontFamily: "ui-serif, Georgia, serif", fontSize: 19, fontWeight: 600, margin: 0, color: T.text }}>{title}</h2>
+          )}
+          {hint && <div style={{ fontSize: 11, color: T.textFaint, marginTop: 2 }}>{hint}</div>}
+        </div>
+      </div>
+      <ChevronDown size={18} style={{ transform: open ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.25s ease", color: T.textDim, flexShrink: 0, marginLeft: 10 }} />
+    </button>
+  );
+}
+
+// Animated collapse/expand wrapper for section content.
+function CollapseBody({ open, children }) {
+  return (
+    <div style={{ display: "grid", gridTemplateRows: open ? "1fr" : "0fr", transition: "grid-template-rows 0.3s ease", marginTop: open ? 16 : 0 }}>
+      <div style={{ overflow: "hidden", opacity: open ? 1 : 0, transition: "opacity 0.2s ease" }}>{children}</div>
+    </div>
+  );
+}
+
+function RateInput({ value, onChange, T }) {
+  return (
+    <div style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+      <span style={{ color: T.textDim, fontSize: 13 }}>$</span>
+      <input type="number" step="0.01" value={value} onChange={(e) => onChange(e.target.value)} style={{ border: `1px solid ${T.inputBorder}`, borderRadius: 7, padding: "6px 9px", fontSize: 13, background: T.inputBg, color: T.text, width: 70 }} />
+    </div>
+  );
+}
+
+function StepperInput({ value, onChange, min = 0, width = 74, T, placeholder, onBlur, autoFocus, inputRef }) {
+  const localRef = useRef(null);
+  const ref = inputRef || localRef;
+  const numeric = (v) => { const n = parseInt(v, 10); return isNaN(n) ? 0 : n; };
+  const current = value === "" || value == null ? numeric(placeholder) : numeric(value);
+  const dec = () => onChange(String(Math.max(min, current - 1)));
+  const inc = () => onChange(String(current + 1));
+  useEffect(() => {
+    if (autoFocus) requestAnimationFrame(() => { ref.current?.focus({ preventScroll: true }); ref.current?.select && ref.current.select(); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoFocus]);
+  return (
+    <div style={{ display: "inline-flex", alignItems: "center", border: `1px solid ${T.inputBorder}`, borderRadius: 6, overflow: "hidden", width, background: T.inputBg }}>
+      <button type="button" className="sb-icon-btn" onClick={dec} style={{ all: "unset", cursor: "pointer", padding: "3px 7px", color: T.textDim, fontSize: 13, lineHeight: 1, flexShrink: 0 }}>−</button>
+      <input ref={ref} type="number" value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} onBlur={onBlur}
+        style={{ width: "100%", minWidth: 0, textAlign: "center", border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 12.5, padding: "4px 0" }} />
+      <button type="button" className="sb-icon-btn" onClick={inc} style={{ all: "unset", cursor: "pointer", padding: "3px 7px", color: T.textDim, fontSize: 13, lineHeight: 1, flexShrink: 0 }}>+</button>
+    </div>
+  );
+}
+
+// Click once to copy the value; double-click (or click again quickly) to
+// edit it in place. Browsers fire two "click" events before a "dblclick",
+// so the copy is debounced — if a second click arrives inside the window,
+// the pending copy is cancelled and editing opens instead of copying twice.
+function CopyableHeader({ label, fullWord, T }) {
+  const [copied, setCopied] = useState(false);
+  const doCopy = async () => {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(fullWord);
+      else {
+        const ta = document.createElement("textarea");
+        ta.value = fullWord; ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch (e) { /* clipboard blocked — no confirmation shown */ }
+  };
+  return (
+    <th style={{ ...makeStyles(T).thStyle, padding: 0 }}>
+      <button onClick={doCopy} title={`Click to copy "${fullWord}"`} className="sb-header-copy"
+        style={{ all: "unset", cursor: "pointer", display: "inline-block", padding: "8px 9px", borderRadius: 5, color: "inherit", fontWeight: "inherit", fontSize: "inherit" }}>
+        {copied ? "Copied" : label}
+      </button>
+    </th>
+  );
+}
+
+function ClickCopyEdit({ value, displayText, copyText, editable = true, onCommit, T, inputType = "number", inputStep, formatEdit, parseEdit, renderEditor, displayStyle, width }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [justCopied, setJustCopied] = useState(false);
+  const inputRef = useRef(null);
+  const clickTimer = useRef(null);
+
+  useEffect(() => {
+    if (editing) {
+      setDraft(formatEdit ? formatEdit(value) : String(value ?? ""));
+      requestAnimationFrame(() => { inputRef.current?.focus({ preventScroll: true }); inputRef.current?.select && inputRef.current.select(); });
+    }
+  }, [editing]);
+
+  const doCopy = async () => {
+    const text = copyText != null ? String(copyText) : String(value);
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(text);
+      else {
+        const ta = document.createElement("textarea");
+        ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta);
+      }
+      setJustCopied(true);
+      setTimeout(() => setJustCopied(false), 1200);
+    } catch (e) { /* clipboard blocked — no confirmation shown */ }
+  };
+
+  const commit = (raw) => {
+    const parsed = parseEdit ? parseEdit(raw ?? draft) : (raw ?? draft);
+    onCommit(parsed);
+    setEditing(false);
+  };
+  const cancel = () => setEditing(false);
+
+  const handleClick = (ev) => {
+    ev.stopPropagation();
+    if (clickTimer.current) { clearTimeout(clickTimer.current); clickTimer.current = null; return; }
+    clickTimer.current = setTimeout(() => { doCopy(); clickTimer.current = null; }, 260);
+  };
+  const handleDoubleClick = (ev) => {
+    ev.stopPropagation();
+    if (clickTimer.current) { clearTimeout(clickTimer.current); clickTimer.current = null; }
+    if (editable) setEditing(true);
+  };
+
+  if (editing) {
+    if (renderEditor) return renderEditor({ draft, setDraft, commit, cancel, inputRef, T });
+    return (
+      <input ref={inputRef} type={inputType} step={inputStep} value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => commit()}
+        onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") cancel(); }}
+        style={{ width: width || 64, boxSizing: "border-box", border: `1px solid ${T.accent}`, borderRadius: 6, padding: "3px 6px", fontSize: 12.5, background: T.inputBg, color: T.text }}
+      />
+    );
+  }
+
+  return (
+    <span onClick={handleClick} onDoubleClick={handleDoubleClick}
+      title={editable ? "Click to copy · double-click to edit" : "Click to copy"}
+      style={{ cursor: "pointer", display: "inline-flex", justifyContent: "center", alignItems: "center", boxSizing: "border-box", width: width || undefined, minWidth: width || undefined, overflow: "hidden" }}>
+      <span style={{ whiteSpace: "nowrap", textOverflow: "ellipsis", overflow: "hidden", ...displayStyle }}>
+        {justCopied ? "Copied" : displayText}
+      </span>
+    </span>
+  );
+}
+
+function LabeledRateInput({ label, value, onChange, wide, T }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", fontSize: 11, color: T.textDim }}>
+      {label}
+      <input type="number" step="0.01" value={value} onChange={(e) => onChange(e.target.value)} style={{ border: `1px solid ${T.inputBorder}`, borderRadius: 7, padding: "6px 9px", fontSize: 13, background: T.inputBg, color: T.text, width: wide ? 110 : 60 }} />
+    </div>
+  );
+}
+
+function SummaryStat({ label, value, T }) {
+  return (
+    <div>
+      <div style={{ fontSize: 11.5, textTransform: "uppercase", letterSpacing: "0.08em", color: T.textDim }}>{label}</div>
+      <div style={{ fontFamily: "ui-serif, Georgia, serif", fontSize: 26, fontWeight: 600, color: T.text }}>{value}</div>
+    </div>
+  );
+}
+
+function IconButton({ icon: Icon, label, onClick, T }) {
+  return (
+    <button className="sb-icon-btn" onClick={onClick} aria-label={label} title={label}
+      style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "none", border: "none", cursor: "pointer", color: T.warn, fontSize: 12, borderRadius: 7, padding: "5px 7px" }}>
+      <Icon size={13} /> {label}
+    </button>
+  );
+}
+
+function ToggleSwitch({ checked, onChange, T }) {
+  return (
+    <label style={{ display: "inline-flex", alignItems: "center", cursor: "pointer" }}>
+      <input type="checkbox" checked={checked} onChange={onChange} style={{ display: "none" }} />
+      <span className="sb-toggle-track" style={{ width: 38, height: 22, borderRadius: 999, background: checked ? T.accent : T.inputBorder, position: "relative", display: "inline-block", flexShrink: 0 }}>
+        <span className="sb-toggle-thumb" style={{ position: "absolute", top: 2, left: checked ? 18 : 2, width: 18, height: 18, borderRadius: "50%", background: checked ? T.accentContrastText : T.textDim }} />
+      </span>
+    </label>
+  );
+}
+
+function ThemeToggle({ mode, onToggle }) {
+  const isDark = mode === "dark";
+  return (
+    <button onClick={onToggle} aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"} aria-pressed={isDark}
+      style={{ display: "inline-flex", alignItems: "center", width: 56, height: 30, borderRadius: 999, background: isDark ? "#1B2333" : "#DCE6F5", border: `1px solid ${isDark ? "rgba(255,255,255,0.28)" : "rgba(20,45,90,0.28)"}`, position: "relative", cursor: "pointer", padding: 0, flexShrink: 0, transition: "background 0.25s ease" }}>
+      <span style={{ position: "absolute", top: 2, left: isDark ? 27 : 2, width: 25, height: 25, borderRadius: "50%", background: "#FFFFFF", transition: "left 0.25s ease", boxShadow: "0 1px 3px rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        {isDark ? <Moon size={14} color="#2A5FA8" /> : <Sun size={14} color="#E2A33D" />}
+      </span>
+    </button>
+  );
+}
+
+// Custom dropdown — replaces native <select> so the open/close transition
+// can be a considered fade + rise instead of the browser's instant native
+// popup, and so it reads the same across every browser.
+function Dropdown({ value, onChange, options, placeholder, T, width }) {
+  const [open, setOpen] = useState(false);
+  const [coords, setCoords] = useState(null);
+  const wrapRef = useRef(null);
+  const btnRef = useRef(null);
+  const panelRef = useRef(null);
+
+  const reposition = useCallback(() => {
+    const el = btnRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const maxPanelHeight = 240;
+    const roomBelow = window.innerHeight - r.bottom - 6;
+    const openUpward = roomBelow < Math.min(maxPanelHeight, 120) && r.top > roomBelow;
+    const top = openUpward ? Math.max(6, r.top - 6 - Math.min(maxPanelHeight, r.top - 12)) : r.bottom + 6;
+    setCoords({ top, left: r.left, width: r.width, maxHeight: openUpward ? Math.min(maxPanelHeight, r.top - 12) : Math.min(maxPanelHeight, roomBelow) });
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    reposition();
+    const onScrollOrResize = () => reposition();
+    window.addEventListener("scroll", onScrollOrResize, true);
+    window.addEventListener("resize", onScrollOrResize);
+    return () => { window.removeEventListener("scroll", onScrollOrResize, true); window.removeEventListener("resize", onScrollOrResize); };
+  }, [open, reposition]);
+
+  useEffect(() => {
+    function onDocClick(e) {
+      if (wrapRef.current && wrapRef.current.contains(e.target)) return;
+      if (panelRef.current && panelRef.current.contains(e.target)) return;
+      setOpen(false);
+    }
+    function onKey(e) { if (e.key === "Escape") setOpen(false); }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDocClick); document.removeEventListener("keydown", onKey); };
+  }, []);
+
+  const selected = options.find((o) => o.value === value);
+
+  const panel = open && coords ? createPortal(
+    <div ref={panelRef} role="listbox" className="sb-dd-panel" style={{
+      position: "fixed", top: coords.top, left: coords.left, minWidth: coords.width, zIndex: 1000,
+      background: T.card, border: `1px solid ${T.cardBorder}`, borderRadius: 10,
+      boxShadow: "0 14px 30px rgba(0,0,0,0.35)", overflow: "hidden", maxHeight: coords.maxHeight || 240, overflowY: "auto",
+      opacity: 1, transform: "translateY(0) scale(1)",
+    }}>
+      {options.map((o) => (
+        <div key={o.value} role="option" aria-selected={o.value === value} onClick={() => { onChange(o.value); setOpen(false); }}
+          style={{ padding: "9px 12px", fontSize: 13, cursor: "pointer", color: T.text, background: o.value === value ? T.accentSoft : "transparent" }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = T.accentSoft)}
+          onMouseLeave={(e) => (e.currentTarget.style.background = o.value === value ? T.accentSoft : "transparent")}>
+          {o.label}
+        </div>
+      ))}
+    </div>,
+    document.body
+  ) : null;
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative", display: "inline-block", width: width || "auto" }}>
+      <button ref={btnRef} type="button" onClick={() => setOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={open}
+        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, width: "100%", border: `1px solid ${T.inputBorder}`, borderRadius: 7, padding: "6px 8px 6px 10px", fontSize: 13, background: T.inputBg, color: selected ? T.text : T.textFaint, cursor: "pointer", transition: "border-color 0.15s ease, box-shadow 0.15s ease", boxShadow: open ? `0 0 0 3px ${T.accent}2A` : "none", borderColor: open ? T.accent : T.inputBorder }}>
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selected ? selected.label : placeholder || "— choose —"}</span>
+        <ChevronDown size={14} style={{ transform: open ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.22s ease", flexShrink: 0, color: T.textDim }} />
+      </button>
+      {panel}
+    </div>
+  );
+}

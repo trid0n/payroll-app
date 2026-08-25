@@ -1,0 +1,11 @@
+.env
+.env.local
+.vercel
+node_modules/
+.DS_Store
+Thumbs.db
+
+# local test harness (see CLAUDE.md "Testing"), never committed
+index-test.html
+serve-test.ps1
+.claude/launch.json
