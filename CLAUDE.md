@@ -96,6 +96,7 @@ index.html                     the whole app. Edit this. Served as-is.
   ├─ <head>                    splash CSS + pre-paint theme
   ├─ script #1                 THE ONLINE LAYER (config, db, window.storage, stash, compile)
   └─ script #app-source        the React app, ~3,100 lines of JSX
+logo.png                       the supplied Support Beyond artwork, untouched
 supabase/schema.sql            run this in the SQL Editor. Re-runnable.
 supabase/repair-columns.sql    run if saves start failing
 supabase/lock-down.sql         optional: put the app behind a login (not run)
@@ -374,6 +375,15 @@ Facts about this harness worth knowing before you write one:
 - Screenshots were unavailable in the session that did the port (the browser
   pane wasn't compositing). Computed-style checks are a workable substitute for
   contrast bugs; they are not a substitute for layout review.
+- **The logo split can't rely on a gap.** `buildHeaderLogo()` recolours the
+  wordmark white for the dark header bar, and has to know where the bird ends.
+  In this artwork the bird's grey tail runs on past its last *coloured* column
+  and touches the "S" — there is no empty column between them. Splitting on a
+  gap therefore walks through the whole "S" and leaves it black on a black bar,
+  which reads as a missing letter, not as a bug. The split is on the ink
+  *trough* between the tail tip and the first letter instead. If the artwork is
+  ever replaced, re-check that boundary: the giveaway is opaque near-black
+  pixels in the output beyond the bird's x-range.
 - **Selector order matters.** `document.querySelector('input[type=file]')` picks
   the *backup JSON* input, not the CSV one — the CSV input is
   `input[accept*="csv"]`. Grabbing the wrong one reads as "the import silently
