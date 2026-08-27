@@ -1598,18 +1598,10 @@ function App() {
     return `${startYear}-${String(startYear + 1).slice(-2)}`;
   });
   const [activeTab, setActiveTab] = useState("sec-import");
-  const sectionOpen = useMemo(() => {
-    const obj = {};
-    NAV_ITEMS.forEach((n) => { obj[n.id] = n.id === activeTab; });
-    return obj;
-  }, [activeTab]);
-  const toggleSection = (id) => {
-    setActiveTab(id);
-    setTimeout(() => {
-      const el = document.getElementById("sb-tab-top");
-      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 50);
-  };
+  // Section collapsing is gone: only the active tab's section is rendered at all,
+  // so its header chevron could never do anything but point at open. The nav pills
+  // are the only way to change section, and openSection() below is how the app
+  // moves you to one itself.
   const openSection = (id) => {
     setActiveTab(id);
     setTimeout(() => {
@@ -2431,8 +2423,8 @@ function App() {
         {/* Import CSV */}
         {activeTab === "sec-import" && (
         <section id="sec-import" className="sb-card" style={S.cardStyle}>
-          <SectionHeader id="sec-import" title="Import & check this week" icon={FileSpreadsheet} T={T} open={sectionOpen["sec-import"]} onToggle={() => toggleSection("sec-import")} />
-          <CollapseBody open={sectionOpen["sec-import"]}>
+          <SectionHeader id="sec-import" title="Import & check this week" icon={FileSpreadsheet} T={T} />
+          <CollapseBody open>
           <p style={{ fontSize: 13, color: T.textDim, marginTop: 6 }}>
             Needs a Jibble <strong>Time Entries</strong> export specifically — that's the one with shift notes, so km's,
             "1 break @ $x" claims, and "sleepover" mentions all get picked up automatically.
@@ -2891,8 +2883,8 @@ function App() {
         {/* Committed sheets ledger */}
         {activeTab === "sec-committed" && (
         <section id="sec-committed" className="sb-card" style={S.cardStyle}>
-          <SectionHeader id="sec-committed" title="Km's History" icon={Archive} T={T} open={sectionOpen["sec-committed"]} onToggle={() => toggleSection("sec-committed")} />
-          <CollapseBody open={sectionOpen["sec-committed"]}>
+          <SectionHeader id="sec-committed" title="Km's History" icon={Archive} T={T} />
+          <CollapseBody open>
           {committed && (
             <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 10, background: T.accentSoft, border: `1px solid ${T.cardBorder}`, fontSize: 13, fontWeight: 600 }}>
               <span style={{ color: T.good }}>✓ Sheet committed — km's added to each person's YTD, and saved online.</span>
@@ -2972,8 +2964,8 @@ function App() {
         {/* Module A: roster, rates & km status */}
         {activeTab === "sec-roster" && (
         <section id="sec-roster" className="sb-card" style={S.cardStyle}>
-          <SectionHeader id="sec-roster" title="Employee Rates/km's" icon={Users} T={T} open={sectionOpen["sec-roster"]} onToggle={() => toggleSection("sec-roster")} />
-          <CollapseBody open={sectionOpen["sec-roster"]}>
+          <SectionHeader id="sec-roster" title="Employee Rates/km's" icon={Users} T={T} />
+          <CollapseBody open>
           <p style={{ fontSize: 13, color: T.textDim, marginTop: 6 }}>
             Current level, the rates that apply, and where each person sits against the {kmSettings.threshold?.toLocaleString?.() || kmSettings.threshold}km
             threshold (under = {money(kmSettings.underTaxable)}/km taxable + {money(kmSettings.underExempt)}/km exempt, over = {money(kmSettings.overExempt)}/km exempt).
@@ -3025,8 +3017,8 @@ function App() {
         )}
         {activeTab === "sec-rates" && (
         <section id="sec-rates" className="sb-card" style={S.cardStyle}>
-          <SectionHeader id="sec-rates" title="Edit Employee rates/km's" icon={Wallet} T={T} open={sectionOpen["sec-rates"]} onToggle={() => toggleSection("sec-rates")} />
-          <CollapseBody open={sectionOpen["sec-rates"]}>
+          <SectionHeader id="sec-rates" title="Edit Employee rates/km's" icon={Wallet} T={T} />
+          <CollapseBody open>
           <div className="sb-table" style={{ overflowX: "auto", marginTop: 12 }}>
             <table style={S.tableStyle}>
               <thead><tr><th style={S.thStyle}></th><th style={S.thStyle}>Level</th>{RATE_FIELDS.map((f) => <th style={S.thStyle} key={f}>{RATE_FIELD_LABELS[f]}</th>)}<th style={S.thStyle}></th></tr></thead>
@@ -3227,8 +3219,8 @@ function App() {
         {/* Award rate update */}
         {activeTab === "sec-award" && (
         <section id="sec-award" className="sb-card" style={S.cardStyle}>
-          <SectionHeader id="sec-award" title="Update rates from a Fair Work pay summary" icon={Landmark} T={T} open={sectionOpen["sec-award"]} onToggle={() => toggleSection("sec-award")} discreet hint="Usually only once a financial year" />
-          <CollapseBody open={sectionOpen["sec-award"]}>
+          <SectionHeader id="sec-award" title="Update rates from a Fair Work pay summary" icon={Landmark} T={T} discreet hint="Usually only once a financial year" />
+          <CollapseBody open>
           <p style={{ fontSize: 13, color: T.textDim, marginTop: 6 }}>
             Can't read a PDF's binary content directly — open it, select all the text, copy it, and paste it below.
             Rate fields and the broken shift allowance are both checked: anything you're paying <em>below</em> the new
@@ -3438,10 +3430,10 @@ function SectionTitle({ title, icon: Icon, T }) {
 // renders a visually quieter version (smaller icon, muted colour, no serif
 // display font) for sections that don't need to draw the eye, plus an
 // optional small hint explaining why.
-function SectionHeader({ title, icon: Icon, T, open, onToggle, discreet, hint }) {
+function SectionHeader({ title, icon: Icon, T, discreet, hint }) {
   const iconSize = discreet ? 26 : 30;
   return (
-    <button onClick={onToggle} aria-expanded={open} style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", boxSizing: "border-box" }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", boxSizing: "border-box" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
         {Icon && (
           <span style={{ display: "inline-flex", width: iconSize, height: iconSize, borderRadius: 8, alignItems: "center", justifyContent: "center", background: discreet ? "transparent" : T.accentSoft, border: discreet ? `1px solid ${T.cardBorder}` : "none", color: discreet ? T.textDim : T.accent, flexShrink: 0 }}>
@@ -3457,8 +3449,7 @@ function SectionHeader({ title, icon: Icon, T, open, onToggle, discreet, hint })
           {hint && <div style={{ fontSize: 11, color: T.textFaint, marginTop: 2 }}>{hint}</div>}
         </div>
       </div>
-      <ChevronDown size={18} style={{ transform: open ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.25s ease", color: T.textDim, flexShrink: 0, marginLeft: 10 }} />
-    </button>
+    </div>
   );
 }
 
