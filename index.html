@@ -6,7 +6,7 @@
 <!-- This deployment has no login (see README "Access model"). noindex keeps it out of
      search results so the URL is at least not discoverable by searching. -->
 <meta name="robots" content="noindex, nofollow, noarchive" />
-<title>Support Beyond — Timesheet, Rates &amp; Km Calculator</title>
+<title>Support Beyond — Timesheet Calculator</title>
 <!-- Just the bird mark, not the full lockup: a favicon renders at 16px, where the
      wordmark would be an illegible smudge. Cropped and scaled from logo.png, so it
      is the real artwork rather than a redraw.
@@ -2386,10 +2386,7 @@ function App() {
                 <div style={{ fontSize: 12, letterSpacing: "0.14em", textTransform: "uppercase", color: HEADER_EYEBROW }}>Support Beyond payroll</div>
               )}
             </div>
-            <h1 className="sb-h1" style={{ fontFamily: "ui-serif, Georgia, serif", fontSize: 30, fontWeight: 600, margin: 0, color: HEADER_TEXT }}>Timesheet, rates & km calculator</h1>
-            <p className="sb-sub" style={{ margin: "8px 0 0", color: "#C7D8EC", fontSize: 14.5, maxWidth: 640 }}>
-              Roster, rate card and km's are preloaded. Import a week, check it, commit it — every committed week is kept.
-            </p>
+            <h1 className="sb-h1" style={{ fontFamily: "ui-serif, Georgia, serif", fontSize: 30, fontWeight: 600, margin: 0, color: HEADER_TEXT }}>Timesheet calculator</h1>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <button onClick={undo} disabled={undoStack.length === 0} title="Undo (Ctrl+Z)" style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.16)", borderRadius: 999, padding: "6px 14px 6px 10px", cursor: undoStack.length === 0 ? "default" : "pointer", color: HEADER_TEXT, fontSize: 12.5, fontWeight: 600, opacity: undoStack.length === 0 ? 0.45 : 1 }}>
