@@ -2165,6 +2165,32 @@ function App() {
   const visibleEmployees = focusMode
     ? (perEmployee[safeFocusIndex] ? [perEmployee[safeFocusIndex]] : [])
     : perEmployee;
+  /* Columns the focused person has nothing in, so the row reads as just the
+     rates they actually worked. These are the table's own column positions —
+     if a column is ever added or reordered, this list moves with it. Hiding is
+     done in CSS against `tr.sb-datarow` specifically, so the "No shifts this
+     week" row and the shift-detail row, which both use colSpan, are untouched. */
+  const focusHiddenCols = (() => {
+    if (!focusMode) return [];
+    const e = perEmployee[safeFocusIndex];
+    if (!e || !e.hasShifts) return [];
+    const b = e.buckets || {};
+    const km = weeklyKmFor(e.id);
+    const kmPending = kmCandidatesFor(e.id).some((c) => !approvedKmCandidates[c.id]);
+    const ov = breakOverride[e.id] || {};
+    const c1 = ov.count1 !== undefined && ov.count1 !== "" ? parseInt(ov.count1, 10) || 0 : e.breakInfo.count1;
+    const c2 = ov.count2 !== undefined && ov.count2 !== "" ? parseInt(ov.count2, 10) || 0 : e.breakInfo.count2;
+    const so = sleepoverOverride[e.id];
+    const sl = so !== undefined && so !== "" ? parseInt(so, 10) || 0 : e.sleepovers;
+    return [
+      [2, !b.weekday], [3, !b.afternoon], [4, !b.night], [5, !b.saturday],
+      [6, !b.sunday], [7, !b.publicHoliday], [8, !b.otTier1], [9, !b.otTier2],
+      [10, !e.totalHours],
+      [11, !km && !kmPending],   // keep it if a km figure is waiting to be approved
+      [12, !c1], [13, !c2], [14, !sl],
+    ].filter((pair) => pair[1]).map((pair) => pair[0]);
+  })();
+
   const stepFocus = useCallback((delta) => {
     setFocusIndex((i) => {
       if (!focusCount) return 0;
@@ -2566,6 +2592,11 @@ function App() {
         <section id="sec-import" className="sb-card" style={S.cardStyle}>
           <SectionHeader id="sec-import" title="Import & check this week" icon={FileSpreadsheet} T={T} />
           <CollapseBody open>
+          {/* One-at-a-time is for reading one person's figures into Payroller, so
+              everything that isn't that person gets out of the way: the import
+              controls here, and the commit and cross-check below the table. */}
+          {!focusMode && (
+          <>
           <p style={{ fontSize: 13, color: T.textDim, marginTop: 6 }}>
             Needs a Jibble <strong>Time Entries</strong> export specifically — that's the one with shift notes, so km's,
             "1 break @ $x" claims, and "sleepover" mentions all get picked up automatically.
@@ -2597,9 +2628,13 @@ function App() {
               </div>
             </div>
           )}
+          </>
+          )}
 
           {shifts.length > 0 && (
             <div style={{ marginTop: 22, paddingTop: 18, borderTop: `1px solid ${T.divider}` }}>
+              {!focusMode && (
+              <>
               <div style={{ fontWeight: 700, fontSize: 13, color: T.text, marginBottom: 4 }}>Check this week, then commit it</div>
               <div style={{ display: "flex", gap: 24, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
                 <SummaryStat label="Total hours" value={grandTotalHours.toFixed(2)} T={T} />
@@ -2614,13 +2649,15 @@ function App() {
                 }}>
                   {activeEmployees.every((e) => expandedShiftDetail[e.id]) ? "Collapse all notes" : "Expand all notes"}
                 </button>
-                <button className="sb-btn-hover" style={S.btnGhost} onClick={() => setFocusMode((v) => !v)}>
-                  {focusMode ? "Show all" : "One at a time"}
+                <button className="sb-btn-hover" style={S.btnGhost} onClick={() => setFocusMode(true)}>
+                  One at a time
                 </button>
               </div>
+              </>
+              )}
 
               {focusMode && focusCount > 0 && (
-                <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 16 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                   <button className="sb-btn-hover" style={{ ...S.btnGhost, padding: "6px 12px" }}
                     onClick={() => stepFocus(-1)} aria-label="Previous person">‹</button>
                   <div style={{ minWidth: 0 }}>
@@ -2633,10 +2670,22 @@ function App() {
                   </div>
                   <button className="sb-btn-hover" style={{ ...S.btnGhost, padding: "6px 12px" }}
                     onClick={() => stepFocus(1)} aria-label="Next person">›</button>
+                  <button className="sb-btn-hover" style={{ ...S.btnGhost, marginLeft: "auto" }}
+                    onClick={() => setFocusMode(false)}>Show all</button>
                 </div>
               )}
 
-              <div className="sb-table" style={{ overflowX: "auto", marginTop: 18 }}>
+              {/* Direct-child selectors only. The expanded shift detail is a table
+                  nested inside this one, and a descendant selector hides its
+                  Out / Raw hrs / Notes columns too. */}
+              {focusHiddenCols.length > 0 && (
+                <style>{focusHiddenCols.map((n) =>
+                  `.sb-focusmode > table > thead > tr > th:nth-child(${n}),` +
+                  `.sb-focusmode > table > tbody > tr.sb-datarow > td:nth-child(${n}){display:none}`
+                ).join("\n")}</style>
+              )}
+
+              <div className={focusMode ? "sb-table sb-focusmode" : "sb-table"} style={{ overflowX: "auto", marginTop: 18 }}>
                 <table style={S.tableStyle}>
                   <thead>
                     <tr>
@@ -2675,7 +2724,7 @@ function App() {
                       const weekKmAuto = weeklyKmAutoFor(e.id);
                       return (
                       <React.Fragment key={e.id}>
-                      <tr>
+                      <tr className="sb-datarow">
                         <td style={{ ...S.tdStyle, fontWeight: 600 }}>
                           <button onClick={() => setExpandedShiftDetail((prev) => ({ ...prev, [e.id]: !prev[e.id] }))}
                             style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
@@ -2907,6 +2956,8 @@ function App() {
                 </table>
               </div>
 
+              {!focusMode && (
+              <>
               {kmThresholdCrossers.length > 0 && (
                 <div style={{ marginTop: 14, background: T.warnSoft, border: `1px solid ${T.warn}55`, borderRadius: 10, padding: "10px 12px", fontSize: 12.5, color: T.warn, fontWeight: 600 }}>
                   ⚠ {kmThresholdCrossers.map((e) => e.name).join(", ")} {kmThresholdCrossers.length === 1 ? "crosses" : "cross"} 5,000km this week — remember to update {kmThresholdCrossers.length === 1 ? "their" : "their"} km rate in Payroller.
@@ -3034,6 +3085,8 @@ function App() {
                   </div>
                 )}
               </div>
+              </>
+              )}
             </div>
           )}
           </CollapseBody>
