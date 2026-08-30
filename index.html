@@ -1178,8 +1178,26 @@ function parsePayrollerText(text) {
     const higherRate = grab(/Ordinary Hours - [Hh]igher rate\s+([\d.]+)\s+\$/);
     const kmMatches = [...block.matchAll(/Cents per KM\s+(\d+)\s+\$/g)].map((m) => parseInt(m[1], 10));
     const km = kmMatches.length ? Math.max(...kmMatches) : 0;
-    const otherMatches = [...block.matchAll(/Other - General\s+(\d+)\s+\$/g)].map((m) => parseInt(m[1], 10));
-    const otherAllowanceUnits = otherMatches.length ? Math.max(...otherMatches) : 0;
+    // Payroller prints one "Other - General" line per allowance RATE, so two
+    // breaks at $20.82 and three at $27.56 arrive as two lines of 2 and 3, not
+    // one line of 5 — and a sleepover at $60.02 is a third. The Jibble side of
+    // the comparison adds all of those together, so this side has to as well.
+    //
+    // Taking the largest line (what this used to do) reported 3 against Jibble's
+    // 5 and flagged a clean week as wrong. Plain summing is not safe either: a
+    // payslip that repeats a line would double it. Group by rate, keep the
+    // largest count seen at each rate, then add the rates together.
+    //
+    // Note this is the opposite of the km handling above, deliberately: the two
+    // "Cents per KM" lines are the SAME kilometres split into a taxable and an
+    // exempt component, so there the largest single line is the real figure.
+    const otherByRate = {};
+    for (const m of block.matchAll(/Other - General\s+(\d+)\s+\$?\s*([\d.]+)/g)) {
+      const units = parseInt(m[1], 10);
+      const rate = m[2];
+      if (!(rate in otherByRate) || units > otherByRate[rate]) otherByRate[rate] = units;
+    }
+    const otherAllowanceUnits = Object.values(otherByRate).reduce((a, n) => a + n, 0);
     const total = weekday + afternoon + night + saturday + sunday + publicHoliday + otTier1 + otTier2 + higherRate;
     return { name, weekday, afternoon, night, saturday, sunday, publicHoliday, otTier1, otTier2, higherRate, total, km, otherAllowanceUnits };
   });
@@ -2952,7 +2970,7 @@ function App() {
                         </tbody>
                       </table>
                     </div>
-                    <div style={{ fontSize: 11, color: T.textFaint, marginTop: 8 }}>Each cell reads Jibble / Payroller. Anything highlighted in orange is off by more than a rounding margin — worth a second look. "Other units" is breaks + sleepovers combined, since Payroller only shows one combined "Other - General" line.</div>
+                    <div style={{ fontSize: 11, color: T.textFaint, marginTop: 8 }}>Each cell reads Jibble / Payroller. Anything highlighted in orange is off by more than a rounding margin — worth a second look. "Other units" is breaks + sleepovers combined — Payroller lists one "Other - General" line per allowance rate, and they're added up, so 2 breaks at one rate plus 3 at another reads as 5. It still can't tell you which type a mismatch belongs to.</div>
                   </div>
                 )}
               </div>

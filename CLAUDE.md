@@ -521,8 +521,21 @@ children one at a time and watch `document.documentElement.scrollHeight`.
 - A reminder ("take 40% off pre-tax income for Brytnie") is surfaced in the UI
   but not computed anywhere.
 - The Payroller cross-check's "Other units" column is breaks + sleepovers
-  *combined*, because Payroller only exposes one "Other - General" line — it
-  can't tell you which type a mismatch belongs to.
+  *combined*, so it still can't tell you which type a mismatch belongs to.
+
+  It is at least no longer wrong about the total. Payroller prints one
+  "Other - General" line per allowance **rate** — 2 breaks at $20.82 and 3 at
+  $27.56 arrive as two lines of 2 and 3, and a sleepover at $60.02 is a third —
+  and the parser used to take `Math.max` of those lines. That reported 3 against
+  Jibble's 5 and flagged clean weeks as wrong. It now groups by rate, keeps the
+  largest count at each rate (so a repeated line can't double-count), and sums
+  the rates.
+
+  **This is deliberately the opposite of the km handling three lines above**,
+  which keeps `Math.max`: the two "Cents per KM" lines are the *same* kilometres
+  split into a taxable and an exempt component, so there the largest single line
+  is the real figure and summing would double it. Don't "fix" one to match the
+  other.
 - **"Download app + backup"** still works and still writes a pristine copy of
   `index.html`, but that copy is no longer a working offline app — it points at
   Supabase and needs the internet. The **backup JSON is the part that matters**
