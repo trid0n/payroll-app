@@ -321,6 +321,14 @@ Payroller by hand.
 - **Km**: matches `26km`, `26 kms`, and the common typo `26kn`. Any other bare
   number in a note becomes an **approval candidate** rather than being silently
   trusted — a stray number is more often a golf score than a missed km figure.
+
+  Those candidates are asked **as a gate straight after the import**: while any
+  are unanswered, `kmReviewOpen` holds back the whole week's figures and shows
+  the questions instead. They used to be asked inline, one prompt buried in each
+  person's km cell, which meant hunting the table for them while reading km
+  totals that were still going to change. Answering the last one drops the gate
+  on its own; "Skip the rest" sets `kmReviewDone`. Skipped ones count as no and
+  still appear in their person's km cell afterwards.
 - **Breaks**: `"N break(s) @ $X"` or `"N break(s) at $X"` (both separators occur
   in practice), matched against the two configured break-allowance amounts.
 - **Sleepovers**: notes containing "sleepover", "slept over", or "overnight
