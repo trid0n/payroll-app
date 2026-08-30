@@ -2583,7 +2583,9 @@ function App() {
            sentences — centred prose with ragged edges both sides is hard to read. */
         .sb-card { text-align: center; }
         .sb-card table th, .sb-card table td { text-align: center !important; }
-        .sb-detailtable td:last-child, .sb-detailtable th:last-child { text-align: left !important; }
+        /* the shift detail shrinks to its content and centres, like the table above it,
+           rather than stretching the full width of the card on its own */
+        .sb-detailtable { width: auto !important; max-width: 100%; margin: 0 auto; }
         .sb-btnrow { justify-content: center; }
         /* Zebra striping removed rather than fixed. It keyed on tr:nth-child(even),
            but a person with shifts is TWO rows here (their figures plus a hidden
@@ -2613,11 +2615,17 @@ function App() {
         textarea::-webkit-scrollbar-thumb:hover { background: ${T.accent}; }
         input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
         input[type=number] { -moz-appearance: textfield; appearance: textfield; }
-        .sb-table table td:first-child, .sb-table table th:first-child {
+        /* Outer table only, and only its real data rows. As a descendant selector this
+           also hit the shift-detail row — whose single colSpan cell IS the first child —
+           so hovering anywhere in the detail lit up the whole container rather than the
+           row under the pointer, and the detail's own Date column picked up an opaque
+           sticky background and a drop shadow it has no use for. */
+        .sb-table > table:not(.sb-detailtable) > tbody > tr:not(.sb-detailrow) > td:first-child,
+        .sb-table > table:not(.sb-detailtable) > thead > tr > th:first-child {
           position: sticky; left: 0; z-index: 2; background: ${T.card};
           box-shadow: 4px 0 8px -4px rgba(0,0,0,0.35);
         }
-        .sb-table table tbody tr:hover td:first-child { background: ${T.accentSoft}; }
+        .sb-table > table:not(.sb-detailtable) > tbody > tr:not(.sb-detailrow):hover > td:first-child { background: ${T.accentSoft}; }
         .sb-navpill { transition: background 0.15s ease, color 0.15s ease; }
         .sb-navpill:hover { background: ${T.accentSoft}; }
         @keyframes sb-dd-in { from { opacity: 0; transform: translateY(-6px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
