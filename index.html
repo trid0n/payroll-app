@@ -2183,6 +2183,11 @@ function App() {
     const so = sleepoverOverride[e.id];
     const sl = so !== undefined && so !== "" ? parseInt(so, 10) || 0 : e.sleepovers;
     return [
+      // The name is the big heading above the table now, so the Name column would
+      // only repeat it. Only dropped when they have shifts: the "No shifts this
+      // week" row still renders its own name cell, and hiding the header without
+      // hiding that cell would put the columns out of step.
+      [1, true],
       [2, !b.weekday], [3, !b.afternoon], [4, !b.night], [5, !b.saturday],
       [6, !b.sunday], [7, !b.publicHoliday], [8, !b.otTier1], [9, !b.otTier2],
       [10, !e.totalHours],
@@ -2590,7 +2595,7 @@ function App() {
         {/* Import CSV */}
         {activeTab === "sec-import" && (
         <section id="sec-import" className="sb-card" style={S.cardStyle}>
-          <SectionHeader id="sec-import" title="Import & check this week" icon={FileSpreadsheet} T={T} />
+          {!focusMode && <SectionHeader id="sec-import" title="Import & check this week" icon={FileSpreadsheet} T={T} />}
           <CollapseBody open>
           {/* One-at-a-time is for reading one person's figures into Payroller, so
               everything that isn't that person gets out of the way: the import
@@ -2656,33 +2661,52 @@ function App() {
               </>
               )}
 
-              {focusMode && focusCount > 0 && (
-                <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                  <button className="sb-btn-hover" style={{ ...S.btnGhost, padding: "6px 12px" }}
-                    onClick={() => stepFocus(-1)} aria-label="Previous person">‹</button>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>
-                      {perEmployee[safeFocusIndex] ? perEmployee[safeFocusIndex].name : ""}
-                    </div>
-                    <div style={{ fontSize: 11.5, color: T.textFaint }}>
-                      {safeFocusIndex + 1} of {focusCount} — use ← and → to move between people
+              {focusMode && focusCount > 0 && (() => {
+                const fe = perEmployee[safeFocusIndex];
+                const arrow = {
+                  all: "unset", cursor: "pointer", width: 44, height: 44, borderRadius: "50%",
+                  border: `1px solid ${T.cardBorder}`, background: T.inputBg, color: T.textDim,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 26, lineHeight: 1, flexShrink: 0, boxSizing: "border-box",
+                };
+                return (
+                  <div style={{ textAlign: "center", padding: "4px 0 2px" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 22 }}>
+                      <button className="sb-btn-hover" style={arrow} onClick={() => stepFocus(-1)} aria-label="Previous person">‹</button>
+                      <div style={{ minWidth: 0 }}>
+                        <div className="sb-h1" style={{ fontFamily: "ui-serif, Georgia, serif", fontSize: 32, fontWeight: 600, color: T.text, lineHeight: 1.15 }}>
+                          {fe ? fe.name : ""}
+                        </div>
+                        <div style={{ fontSize: 12, color: T.textFaint, marginTop: 6 }}>
+                          {fe ? fe.levelLabel : ""} · {safeFocusIndex + 1} of {focusCount} · use ← and → to move
+                        </div>
+                      </div>
+                      <button className="sb-btn-hover" style={arrow} onClick={() => stepFocus(1)} aria-label="Next person">›</button>
                     </div>
                   </div>
-                  <button className="sb-btn-hover" style={{ ...S.btnGhost, padding: "6px 12px" }}
-                    onClick={() => stepFocus(1)} aria-label="Next person">›</button>
-                  <button className="sb-btn-hover" style={{ ...S.btnGhost, marginLeft: "auto" }}
-                    onClick={() => setFocusMode(false)}>Show all</button>
-                </div>
-              )}
+                );
+              })()}
 
               {/* Direct-child selectors only. The expanded shift detail is a table
                   nested inside this one, and a descendant selector hides its
                   Out / Raw hrs / Notes columns too. */}
-              {focusHiddenCols.length > 0 && (
-                <style>{focusHiddenCols.map((n) =>
+              {focusMode && (
+                <style>{[
+                  // shrink to whatever columns are left and sit in the middle
+                  ".sb-focusmode > table{width:auto !important;margin:0 auto}",
+                  ".sb-focusmode > table > thead > tr > th{text-align:center !important;padding:10px 20px !important;text-transform:uppercase;letter-spacing:.05em}",
+                  ".sb-focusmode > table > tbody > tr.sb-datarow > td{text-align:center !important;padding:18px 20px !important}",
+                  // one row, so the hover highlight is just noise
+                  ".sb-focusmode > table > tbody > tr.sb-datarow:hover > td{background:transparent !important}",
+                ].concat(
+                  // nothing to show for this person: a header of empty columns and a
+                  // "No shifts" message is worse than a plain sentence
+                  perEmployee[safeFocusIndex] && !perEmployee[safeFocusIndex].hasShifts
+                    ? [".sb-focusmode > table{display:none}"] : []
+                ).concat(focusHiddenCols.map((n) =>
                   `.sb-focusmode > table > thead > tr > th:nth-child(${n}),` +
                   `.sb-focusmode > table > tbody > tr.sb-datarow > td:nth-child(${n}){display:none}`
-                ).join("\n")}</style>
+                )).join("\n")}</style>
               )}
 
               <div className={focusMode ? "sb-table sb-focusmode" : "sb-table"} style={{ overflowX: "auto", marginTop: 18 }}>
@@ -2955,6 +2979,28 @@ function App() {
                   </tbody>
                 </table>
               </div>
+
+              {focusMode && perEmployee[safeFocusIndex] && !perEmployee[safeFocusIndex].hasShifts && (
+                <div style={{ textAlign: "center", padding: "28px 0 4px", fontSize: 14, color: T.textFaint }}>
+                  No shifts this week
+                </div>
+              )}
+
+              {focusMode && (() => {
+                const fe = perEmployee[safeFocusIndex];
+                const open = fe ? !!expandedShiftDetail[fe.id] : false;
+                return (
+                  <div style={{ display: "flex", justifyContent: "center", gap: 10, marginTop: 18, flexWrap: "wrap" }}>
+                    {fe && fe.hasShifts && (
+                      <button className="sb-btn-hover" style={S.btnGhost}
+                        onClick={() => setExpandedShiftDetail((prev) => ({ ...prev, [fe.id]: !prev[fe.id] }))}>
+                        {open ? "Hide shift detail" : "Show shift detail"}
+                      </button>
+                    )}
+                    <button className="sb-btn-hover" style={S.btnGhost} onClick={() => setFocusMode(false)}>Show all</button>
+                  </div>
+                );
+              })()}
 
               {!focusMode && (
               <>
