@@ -1004,12 +1004,75 @@ function parseDailyRawRows(rows) {
   return { shifts, skipped, format: "dailyRaw" };
 }
 
+// Jibble sometimes records one unbroken stretch of work as two entries — a clock
+// out and a clock straight back in, most often right on midnight (out 11:59pm,
+// in 12:00am). Left as two segments they are classified independently: the second
+// starts a "new" shift, so it takes the new day's base rate and can never reach
+// the night window, which only opens to a shift that ran through midnight. That
+// makes the pay depend on whether someone pressed a button, not on the work.
+//
+// The gap has to stay tight. Merging across a long gap is what broke Donna's
+// numbers once before: a genuine broken shift — a morning block and an evening
+// block — got treated as one long evening shift because the day's last clock-out
+// was after 8pm. Five minutes is deliberately far short of any real break.
+const CONTINUOUS_SHIFT_GAP_MINUTES = 5;
+
+// Minutes between one segment finishing and the next starting, or null if they
+// can't be compared. Both sides are measured from the FIRST segment's midnight,
+// so a segment that ran past midnight reads as 1440+ rather than wrapping to 0.
+function gapBetweenSegments(a, b) {
+  if (a.lastOutMin == null || b.firstInMin == null || !a.dateISO || !b.dateISO) return null;
+  const aStart = a.firstInMin == null ? 0 : a.firstInMin;
+  const aEnd = a.lastOutMin <= aStart ? a.lastOutMin + 1440 : a.lastOutMin;
+  let bStart;
+  if (b.dateISO === a.dateISO) bStart = b.firstInMin;
+  else if (b.dateISO === addDaysISO(a.dateISO, 1)) bStart = b.firstInMin + 1440;
+  else return null;
+  return bStart - aEnd;
+}
+
+// The merged segment keeps the FIRST one's date and clock-in, which is what makes
+// the day-type and window classification follow the start of the work.
+function mergeContinuousSegments(shifts) {
+  const byEmployee = {};
+  for (const s of shifts) (byEmployee[s.key] = byEmployee[s.key] || []).push(s);
+  const out = [];
+  for (const key of Object.keys(byEmployee)) {
+    const list = byEmployee[key].slice().sort((a, b) => {
+      const d = String(a.dateISO || "").localeCompare(String(b.dateISO || ""));
+      return d !== 0 ? d : (a.firstInMin == null ? 0 : a.firstInMin) - (b.firstInMin == null ? 0 : b.firstInMin);
+    });
+    let current = null;
+    for (const s of list) {
+      if (current) {
+        const gap = gapBetweenSegments(current, s);
+        if (gap !== null && gap >= 0 && gap <= CONTINUOUS_SHIFT_GAP_MINUTES) {
+          current.hours += s.hours;
+          current.lastOutMin = s.lastOutMin;
+          current.notes = current.notes.concat(s.notes);
+          continue;
+        }
+        out.push(current);
+      }
+      current = { ...s, notes: s.notes.slice() };
+    }
+    if (current) out.push(current);
+  }
+  return out;
+}
+
 function parseJibbleCSV(text) {
   const rows = parseCSVRows(text);
   if (rows.length < 2) return { shifts: [], error: "No data rows found in that CSV." };
   const format = detectFormat(rows[0]);
-  if (format === "timeEntries") return { ...parseTimeEntriesRows(rows), error: null };
-  if (format === "dailyRaw") return { ...parseDailyRawRows(rows), error: null };
+  if (format === "timeEntries") {
+    const r = parseTimeEntriesRows(rows);
+    return { ...r, shifts: mergeContinuousSegments(r.shifts), error: null };
+  }
+  if (format === "dailyRaw") {
+    const r = parseDailyRawRows(rows);
+    return { ...r, shifts: mergeContinuousSegments(r.shifts), error: null };
+  }
   return { shifts: [], error: "Couldn't recognise this CSV — export a Jibble Time Entries report and try again." };
 }
 

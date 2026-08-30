@@ -237,6 +237,25 @@ otTier2` — except `admin`, which has `flat: true` and pays every hour at
 `hourly`. `custom13` is a negotiated individual rate structure, not a standard
 award level.
 
+### Stitching split entries back together (`mergeContinuousSegments`)
+
+Jibble sometimes records one unbroken stretch of work as two entries — a clock
+out and a clock straight back in, most often right on midnight (out 11:59pm, in
+12:00am). Segments for the same person are merged when the gap between one
+finishing and the next starting is **≤ 5 minutes** (`CONTINUOUS_SHIFT_GAP_MINUTES`),
+including across a date boundary. The merged segment keeps the *first* one's date
+and clock-in, so classification follows the start of the work.
+
+This matters because an unmerged second segment starts a "new" shift: it takes
+the new day's base rate, and it can never reach the night window, which only
+opens to a shift that ran through midnight. Pay ended up depending on whether
+someone pressed a button.
+
+**The threshold must stay tight.** Merging across a long gap is the Donna bug
+(see `splitSegmentByWindow`'s comment): a genuine broken shift, a morning block
+and an evening block, became one long evening shift. There is a regression test
+for this in the harness — a 9am–1pm plus 4pm–8pm pair must stay two segments.
+
 ### Day-type classification (`baseDayType`, `splitSegmentByWindow`)
 
 1. Public holiday beats everything else.
