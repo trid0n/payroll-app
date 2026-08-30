@@ -1196,19 +1196,29 @@ function baseDayType(shift, holidaySet) {
   return "weekday";
 }
 
-// Splits one shift segment's hours across the actual pay-rate windows it
-// overlaps — but only on a weekday. Afternoon/night loadings are a
-// Monday-Friday concept; Saturday, Sunday and public holiday shifts keep
-// their full day rate for every hour worked, with no 8pm/12am carve-out.
-// On a weekday: before 8pm = weekday rate, 8pm-12am = afternoon, 12am-8am =
-// night, and anything still running past 8am rolls onto the *next* day's
-// own base rate. Hours are scaled against the segment's real recorded
-// duration so the parts always add back up to exactly the original total.
-function splitSegmentByWindow(shift, holidaySet) {
+// Splits one shift segment's hours across the pay-rate windows it overlaps.
+//
+// Up to midnight, the day it started on governs. On a weekday that means before
+// 8pm = weekday rate and 8pm-12am = afternoon; Saturday, Sunday and public
+// holiday shifts are NOT carved up by time of day — the whole of that day is one
+// rate.
+//
+// Once it ticks over midnight the hours belong to the new day, and take that
+// day's rate or the overtime rate, whichever is higher. Overtime is settled
+// later in computeWeekBuckets, which only ever converts weekday/afternoon/night
+// hours and always pays at or above the bucket it took them from, so the
+// comparison that has to happen HERE is against `night` — the treatment those
+// small hours would otherwise have had. That is not a foregone conclusion: on
+// most levels Saturday beats night, but on custom13 the night rate ($63) is
+// higher than the Saturday rate ($61), and the higher one has to win.
+//
+// `rates` is the employee's level. Without it the comparison can't be made and
+// the small hours fall back to `night`, which is the pre-existing behaviour.
+//
+// Hours are scaled against the segment's real recorded duration so the parts
+// always add back up to exactly the original total.
+function splitSegmentByWindow(shift, holidaySet, rates) {
   const baseType = baseDayType(shift, holidaySet);
-  if (baseType !== "weekday") {
-    return [{ dayType: baseType, hours: shift.hours, dateISO: shift.dateISO }];
-  }
   if (shift.firstInMin == null || shift.lastOutMin == null || shift.hours <= 0) {
     return [{ dayType: baseType, hours: shift.hours, dateISO: shift.dateISO }];
   }
@@ -1219,27 +1229,36 @@ function splitSegmentByWindow(shift, holidaySet) {
   if (span <= 0) return [{ dayType: baseType, hours: shift.hours, dateISO: shift.dateISO }];
   const scale = shift.hours / (span / 60);
 
-  const windows = [
-    { from: 0, to: 1200, type: baseType },
-    { from: 1200, to: 1440, type: "afternoon" },
-    { from: 1440, to: 1920, type: "night" },
-    { from: 1920, to: 2880, type: "nextday" },
-  ];
+  const nextISO = addDaysISO(shift.dateISO, 1);
+  let nextType;
+  if (holidaySet.has(nextISO)) nextType = "publicHoliday";
+  else {
+    const nd = dayNameFromISO(nextISO);
+    nextType = nd === "Saturday" ? "saturday" : nd === "Sunday" ? "sunday" : "weekday";
+  }
+
+  const rateOf = (type) => (rates ? Number(rates[type === "weekday" ? "hourly" : type]) || 0 : 0);
+  const smallHoursType =
+    nextType === "weekday" || !rates ? "night" : rateOf(nextType) > rateOf("night") ? nextType : "night";
+
+  const windows = baseType === "weekday"
+    ? [
+        { from: 0, to: 1200, type: baseType },
+        { from: 1200, to: 1440, type: "afternoon" },
+        { from: 1440, to: 1920, type: smallHoursType },
+        { from: 1920, to: 2880, type: nextType },
+      ]
+    : [
+        { from: 0, to: 1440, type: baseType },
+        { from: 1440, to: 1920, type: smallHoursType },
+        { from: 1920, to: 2880, type: nextType },
+      ];
+
   const parts = [];
   for (const w of windows) {
     const os = Math.max(start, w.from), oe = Math.min(end, w.to);
     if (oe > os) {
-      const hours = ((oe - os) / 60) * scale;
-      let type = w.type;
-      if (type === "nextday") {
-        const nextISO = addDaysISO(shift.dateISO, 1);
-        if (holidaySet.has(nextISO)) type = "publicHoliday";
-        else {
-          const nd = dayNameFromISO(nextISO);
-          type = nd === "Saturday" ? "saturday" : nd === "Sunday" ? "sunday" : "weekday";
-        }
-      }
-      parts.push({ dayType: type, hours, dateISO: shift.dateISO });
+      parts.push({ dayType: w.type, hours: ((oe - os) / 60) * scale, dateISO: shift.dateISO });
     }
   }
   return parts.length ? parts : [{ dayType: baseType, hours: shift.hours, dateISO: shift.dateISO }];
@@ -1257,9 +1276,9 @@ function splitSegmentByWindow(shift, holidaySet) {
 // own excess comes out of that day's own hours (night, then afternoon, then
 // weekday) — matching how a single evening-finishing long day behaves on
 // an actual payslip.
-function computeWeekBuckets(shiftsForWeek, holidaySet, { skipOvertime }) {
+function computeWeekBuckets(shiftsForWeek, holidaySet, { skipOvertime, rates }) {
   const subparts = [];
-  for (const s of shiftsForWeek) subparts.push(...splitSegmentByWindow(s, holidaySet));
+  for (const s of shiftsForWeek) subparts.push(...splitSegmentByWindow(s, holidaySet, rates));
 
   const buckets = { weekday: 0, afternoon: 0, night: 0, saturday: 0, sunday: 0, publicHoliday: 0 };
   if (skipOvertime) {
@@ -2076,7 +2095,7 @@ function App() {
       const skipOvertime = level.flat || person.flatRateOnly;
       let rawBuckets;
       if (person.flatRateOnly) { const totalHours = rShifts.reduce((a, s) => a + s.hours, 0); rawBuckets = { weekday: totalHours, afternoon: 0, night: 0, saturday: 0, sunday: 0, publicHoliday: 0, otTier1: 0, otTier2: 0 }; }
-      else rawBuckets = computeWeekBuckets(rShifts, holidaySet, { skipOvertime });
+      else rawBuckets = computeWeekBuckets(rShifts, holidaySet, { skipOvertime, rates: level });
       const buckets = {};
       for (const k of Object.keys(rawBuckets)) buckets[k] = truncate2(rawBuckets[k]);
       const hOv = hourOverride[person.id];
@@ -2737,7 +2756,7 @@ function App() {
                                         return (
                                           <React.Fragment key={g.dateISO || gi}>
                                             {g.shifts.map((s, i) => {
-                                              const parts = splitSegmentByWindow(s, holidaySet);
+                                              const parts = splitSegmentByWindow(s, holidaySet, levels[e.level] || levels.l21);
                                               const dotColor = isPH ? T.warn : isPenaltyDay ? T.accent : "transparent";
                                               return (
                                                 <tr key={i}>

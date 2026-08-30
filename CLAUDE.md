@@ -260,10 +260,31 @@ for this in the harness — a 9am–1pm plus 4pm–8pm pair must stay two segmen
 
 1. Public holiday beats everything else.
 2. Otherwise Saturday / Sunday / weekday, from the calendar date.
-3. **Only on a weekday** is a shift split by time of day: before 8pm = ordinary
-   weekday, 8pm–midnight = afternoon, midnight–8am = night. A shift crossing 8am
-   rolls onto the *next calendar day's own* classification. Saturday, Sunday and
-   public holiday shifts are **never** split by time of day.
+3. **Up to midnight the starting day governs.** Only on a weekday is that day
+   split by time of day: before 8pm = ordinary weekday, 8pm–midnight =
+   afternoon. Saturday, Sunday and public holiday shifts are **never** carved up
+   by time of day — the whole of that day is one rate.
+4. **Once a shift ticks over midnight the hours belong to the new day**, and take
+   that day's rate or the overtime rate, whichever is higher.
+
+On point 4, the comparison that happens in `splitSegmentByWindow` is against
+`night` — the treatment those small hours would otherwise have had — and it is
+**not** a foregone conclusion. On most levels Saturday ($65.38 on 2.2) beats
+night ($52.30), but on `custom13` the night rate ($63) is higher than the
+Saturday rate ($61), and the higher one has to win. That is why the function
+takes the employee's rate card as a third argument; without it the small hours
+fall back to `night`. Both call sites pass it — the pay calculation and the
+shift-detail display — so the two can't disagree.
+
+The overtime half of point 4 needs no comparison code: `computeWeekBuckets` only
+ever converts weekday/afternoon/night hours into OT, and the OT tiers are at or
+above the buckets they are taken from. Saturday/Sunday/public-holiday hours are
+never converted, and their rates are at or above the OT tiers.
+
+**Consequence worth knowing:** a Sunday shift running into a Monday now pays the
+small hours at Monday's night rate rather than at Sunday rate. That reduces pay
+for that portion. It was chosen deliberately over "highest of the starting day
+too", with the trade-off spelled out.
 
 ### Overtime (`computeWeekBuckets`) — the trickiest part
 
