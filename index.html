@@ -2237,26 +2237,47 @@ function App() {
     }, 340); // after CollapseBody's 0.3s open animation has settled, so the height is real
   }, []);
 
-  // Which way the last move went, so the incoming person slides in from that side.
-  const [focusDir, setFocusDir] = useState(1);
+  /* The move runs in two phases so the change actually reads as movement: the
+     person you're leaving travels off one edge, then the next one travels in from
+     the other. Sliding only the incoming content — which is what a single
+     animation gives you — swaps the data instantly and then glides it, which
+     lands as a jolt followed by a slide.
 
-  // A transform still counts towards scrollable overflow, so sliding the table in
-  // from the right briefly extends the scroll area of its overflow-x:auto wrapper
-  // and flashes a scrollbar. Clip for the length of the animation instead.
-  const [focusAnimating, setFocusAnimating] = useState(false);
-  useEffect(() => {
-    if (!focusMode) return undefined;
-    setFocusAnimating(true);
-    const t = setTimeout(() => setFocusAnimating(false), 600); // just past the 0.55s slide
-    return () => clearTimeout(t);
-  }, [safeFocusIndex, focusMode]);
+     The index changes at the hand-over point, between the two phases. */
+  const FOCUS_OUT_MS = 260;
+  const FOCUS_IN_MS = 340;
+  const [focusDir, setFocusDir] = useState(1);
+  const [focusPhase, setFocusPhase] = useState("idle"); // idle | out | in
+  const focusTimers = useRef([]);
+  const focusPending = useRef(0);   // a step whose hand-over hasn't happened yet
+  const clearFocusTimers = () => { focusTimers.current.forEach(clearTimeout); focusTimers.current = []; };
+  useEffect(() => () => clearFocusTimers(), []);
+
+  // A transform still counts towards scrollable overflow, so moving the table
+  // sideways briefly extends the scroll area of its overflow-x:auto wrapper and
+  // flashes a scrollbar. Clip for as long as anything is moving.
+  const focusAnimating = focusPhase !== "idle";
+  const focusAnimClass =
+    focusPhase === "out" ? (focusDir < 0 ? "sb-out-prev" : "sb-out-next")
+    : focusPhase === "in" ? (focusDir < 0 ? "sb-in-prev" : "sb-in-next")
+    : "";
   const stepFocus = useCallback((delta) => {
+    if (!focusCount) return;
+    const advance = (d) => setFocusIndex((i) => (Math.min(i, focusCount - 1) + d + focusCount) % focusCount);
+    // A press during someone else's move would otherwise throw away that move's
+    // pending hand-over, so holding the arrow key advanced one person per burst
+    // instead of one per press. Apply the outstanding step first, then start this
+    // one, so presses accumulate.
+    if (focusPending.current) { advance(focusPending.current); focusPending.current = 0; }
+    clearFocusTimers();
+    focusPending.current = delta;
     setFocusDir(delta);
-    setFocusIndex((i) => {
-      if (!focusCount) return 0;
-      const from = Math.min(i, focusCount - 1);
-      return (from + delta + focusCount) % focusCount;
-    });
+    setFocusPhase("out");
+    focusTimers.current.push(setTimeout(() => {
+      if (focusPending.current) { advance(focusPending.current); focusPending.current = 0; }
+      setFocusPhase("in");
+    }, FOCUS_OUT_MS));
+    focusTimers.current.push(setTimeout(() => setFocusPhase("idle"), FOCUS_OUT_MS + FOCUS_IN_MS + 40));
   }, [focusCount]);
 
   useEffect(() => {
@@ -2806,8 +2827,9 @@ function App() {
                       {/* clips the incoming name so it travels in from the edge
                           rather than appearing part-way across */}
                       <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
-                        <div key={`fh-${safeFocusIndex}`} className={focusDir < 0 ? "sb-slidein-prev" : "sb-slidein-next"}
-                          style={{ textAlign: "center" }}>
+                        {/* key changes only at the hand-over, so the element animates out
+                            in place and the replacement animates in */}
+                        <div key={`fh-${safeFocusIndex}`} className={focusAnimClass} style={{ textAlign: "center" }}>
                           <div className="sb-h1" style={{ fontFamily: "ui-serif, Georgia, serif", fontSize: 32, fontWeight: 600, color: T.text, lineHeight: 1.15 }}>
                             {fe ? fe.name : ""}
                           </div>
@@ -2841,22 +2863,23 @@ function App() {
                   `.sb-focusnav,.sb-focuschip{transition:border-color .15s ease,color .15s ease}`,
                   `.sb-focusnav:hover,.sb-focuschip:hover{border-color:${T.accent};color:${T.accent}}`,
                   ".sb-focusnav:active,.sb-focuschip:active{transform:scale(0.96)}",
-                  // travels the full width of its container rather than nudging and
-                  // fading, so the new person arrives from the side you moved towards
-                  "@keyframes sbSlideNext{from{transform:translateX(100%)}to{transform:translateX(0)}}",
-                  "@keyframes sbSlidePrev{from{transform:translateX(-100%)}to{transform:translateX(0)}}",
-                  // Slow, and evenly paced. A decelerating curve puts nearly all the
-                  // travel in the first fraction of the duration, so the movement is
-                  // over before the eye catches it and both directions read the same.
-                  // This one accelerates and decelerates, so which way it came from is
-                  // actually legible.
-                  ".sb-slidein-next{animation:sbSlideNext .55s cubic-bezier(.4,0,.2,1)}",
-                  ".sb-slidein-prev{animation:sbSlidePrev .55s cubic-bezier(.4,0,.2,1)}",
-                  ".sb-focusmode.sb-slide-next > table{animation:sbSlideNext .55s cubic-bezier(.4,0,.2,1)}",
-                  ".sb-focusmode.sb-slide-prev > table{animation:sbSlidePrev .55s cubic-bezier(.4,0,.2,1)}",
+                  // Leaving accelerates away; arriving decelerates in. `forwards` holds
+                  // the outgoing content off-screen until the index swaps under it.
+                  "@keyframes sbOutLeft{from{transform:translateX(0)}to{transform:translateX(-105%)}}",
+                  "@keyframes sbOutRight{from{transform:translateX(0)}to{transform:translateX(105%)}}",
+                  "@keyframes sbInRight{from{transform:translateX(105%)}to{transform:translateX(0)}}",
+                  "@keyframes sbInLeft{from{transform:translateX(-105%)}to{transform:translateX(0)}}",
+                  `.sb-out-next{animation:sbOutLeft ${FOCUS_OUT_MS}ms cubic-bezier(.4,0,1,1) forwards}`,
+                  `.sb-out-prev{animation:sbOutRight ${FOCUS_OUT_MS}ms cubic-bezier(.4,0,1,1) forwards}`,
+                  `.sb-in-next{animation:sbInRight ${FOCUS_IN_MS}ms cubic-bezier(0,0,.2,1)}`,
+                  `.sb-in-prev{animation:sbInLeft ${FOCUS_IN_MS}ms cubic-bezier(0,0,.2,1)}`,
+                  `.sb-focusmode.sb-out-next > table{animation:sbOutLeft ${FOCUS_OUT_MS}ms cubic-bezier(.4,0,1,1) forwards}`,
+                  `.sb-focusmode.sb-out-prev > table{animation:sbOutRight ${FOCUS_OUT_MS}ms cubic-bezier(.4,0,1,1) forwards}`,
+                  `.sb-focusmode.sb-in-next > table{animation:sbInRight ${FOCUS_IN_MS}ms cubic-bezier(0,0,.2,1)}`,
+                  `.sb-focusmode.sb-in-prev > table{animation:sbInLeft ${FOCUS_IN_MS}ms cubic-bezier(0,0,.2,1)}`,
                   // clipped only while it moves, so no scrollbar flashes in from the right
                   ".sb-table.sb-animating{overflow:hidden !important}",
-                  "@media (prefers-reduced-motion:reduce){.sb-slidein-next,.sb-slidein-prev,.sb-focusmode > table{animation:none}}",
+                  "@media (prefers-reduced-motion:reduce){.sb-out-next,.sb-out-prev,.sb-in-next,.sb-in-prev,.sb-focusmode > table{animation:none}}",
                 ].concat(
                   // nothing to show for this person: a header of empty columns and a
                   // "No shifts" message is worse than a plain sentence
@@ -2870,7 +2893,7 @@ function App() {
 
               <div key={focusMode ? `ft-${safeFocusIndex}` : "ft-list"}
                 className={focusMode
-                  ? `sb-table sb-focusmode ${focusDir < 0 ? "sb-slide-prev" : "sb-slide-next"}${focusAnimating ? " sb-animating" : ""}`
+                  ? `sb-table sb-focusmode ${focusAnimClass}${focusAnimating ? " sb-animating" : ""}`
                   : "sb-table"}
                 style={{ overflowX: "auto", marginTop: 18 }}>
                 <table style={S.tableStyle}>
