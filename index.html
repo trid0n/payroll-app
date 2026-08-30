@@ -2247,7 +2247,7 @@ function App() {
   useEffect(() => {
     if (!focusMode) return undefined;
     setFocusAnimating(true);
-    const t = setTimeout(() => setFocusAnimating(false), 420);
+    const t = setTimeout(() => setFocusAnimating(false), 600); // just past the 0.55s slide
     return () => clearTimeout(t);
   }, [safeFocusIndex, focusMode]);
   const stepFocus = useCallback((delta) => {
@@ -2845,11 +2845,15 @@ function App() {
                   // fading, so the new person arrives from the side you moved towards
                   "@keyframes sbSlideNext{from{transform:translateX(100%)}to{transform:translateX(0)}}",
                   "@keyframes sbSlidePrev{from{transform:translateX(-100%)}to{transform:translateX(0)}}",
-                  // decelerating curve, long enough to read as movement rather than a jump
-                  ".sb-slidein-next{animation:sbSlideNext .38s cubic-bezier(.16,1,.3,1)}",
-                  ".sb-slidein-prev{animation:sbSlidePrev .38s cubic-bezier(.16,1,.3,1)}",
-                  ".sb-focusmode.sb-slide-next > table{animation:sbSlideNext .38s cubic-bezier(.16,1,.3,1)}",
-                  ".sb-focusmode.sb-slide-prev > table{animation:sbSlidePrev .38s cubic-bezier(.16,1,.3,1)}",
+                  // Slow, and evenly paced. A decelerating curve puts nearly all the
+                  // travel in the first fraction of the duration, so the movement is
+                  // over before the eye catches it and both directions read the same.
+                  // This one accelerates and decelerates, so which way it came from is
+                  // actually legible.
+                  ".sb-slidein-next{animation:sbSlideNext .55s cubic-bezier(.4,0,.2,1)}",
+                  ".sb-slidein-prev{animation:sbSlidePrev .55s cubic-bezier(.4,0,.2,1)}",
+                  ".sb-focusmode.sb-slide-next > table{animation:sbSlideNext .55s cubic-bezier(.4,0,.2,1)}",
+                  ".sb-focusmode.sb-slide-prev > table{animation:sbSlidePrev .55s cubic-bezier(.4,0,.2,1)}",
                   // clipped only while it moves, so no scrollbar flashes in from the right
                   ".sb-table.sb-animating{overflow:hidden !important}",
                   "@media (prefers-reduced-motion:reduce){.sb-slidein-next,.sb-slidein-prev,.sb-focusmode > table{animation:none}}",
