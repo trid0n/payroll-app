@@ -2541,8 +2541,27 @@ function App() {
         .sb-btn-hover:disabled { opacity: 0.45; cursor: not-allowed; }
         .sb-toggle-track { transition: background 0.2s ease; }
         .sb-toggle-thumb { transition: left 0.2s ease; }
-        .sb-table tbody tr:nth-child(even) td { background: ${T.rowStripe}; }
-        .sb-table tbody tr:hover td { background: ${T.rowHover}; }
+        /* Direct children throughout. These were descendant selectors, which reached
+           into the nested shift-detail table and shaded ITS cells according to the
+           OUTER row's odd/even position — so a whole detail panel was tinted or not
+           depending on where that person happened to fall in the list, and the rows
+           inside it striped against nothing. That is what made the nesting look off. */
+        /* Zebra striping removed rather than fixed. It keyed on tr:nth-child(even),
+           but a person with shifts is TWO rows here (their figures plus a hidden
+           shift-detail row) and a person without is one — so which rows landed on
+           "even" had nothing to do with anything. In practice it was shading the
+           detail containers and not the data. Rows are separated by rules already. */
+        .sb-table > table:not(.sb-detailtable) > tbody > tr:hover > td { background: ${T.rowHover}; }
+        /* the row holding the detail panel is a container, not data */
+        .sb-table > table > tbody > tr.sb-detailrow > td,
+        .sb-table > table > tbody > tr.sb-detailrow:hover > td { background: transparent; }
+        /* Inside the detail table: no zebra at all. A day is one, two or three shift
+           rows followed by a day-total row, so stripes land across those groups at
+           random. The day-total row carries the tint instead, which puts the shading
+           where the grouping actually is. */
+        .sb-detailtable > tbody > tr.sb-daytotal > td { background: ${T.rowStripe}; }
+        .sb-detailtable > tbody > tr:hover > td { background: ${T.rowHover}; }
+        .sb-detailtable > tbody > tr.sb-daytotal:hover > td { background: ${T.rowStripe}; }
         .sb-table { overflow-x: auto; scrollbar-width: thin; scrollbar-color: ${T.inputBorder} transparent; }
         .sb-table::-webkit-scrollbar { height: 8px; }
         .sb-table::-webkit-scrollbar-track { background: transparent; }
@@ -2761,13 +2780,17 @@ function App() {
                       <button className="sb-focusnav" style={arrow} onClick={() => stepFocus(-1)} aria-label="Previous person">
                         <ChevronDown size={20} style={{ transform: "rotate(90deg)" }} />
                       </button>
-                      <div key={`fh-${safeFocusIndex}`} className={focusDir < 0 ? "sb-slide-prev" : "sb-slide-next"}
-                        style={{ flex: 1, minWidth: 0, textAlign: "center" }}>
-                        <div className="sb-h1" style={{ fontFamily: "ui-serif, Georgia, serif", fontSize: 32, fontWeight: 600, color: T.text, lineHeight: 1.15 }}>
-                          {fe ? fe.name : ""}
-                        </div>
-                        <div style={{ fontSize: 12, color: T.textFaint, marginTop: 6 }}>
-                          {fe ? fe.levelLabel : ""} · {safeFocusIndex + 1} of {focusCount} · use ← and → to move
+                      {/* clips the incoming name so it travels in from the edge
+                          rather than appearing part-way across */}
+                      <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
+                        <div key={`fh-${safeFocusIndex}`} className={focusDir < 0 ? "sb-slidein-prev" : "sb-slidein-next"}
+                          style={{ textAlign: "center" }}>
+                          <div className="sb-h1" style={{ fontFamily: "ui-serif, Georgia, serif", fontSize: 32, fontWeight: 600, color: T.text, lineHeight: 1.15 }}>
+                            {fe ? fe.name : ""}
+                          </div>
+                          <div style={{ fontSize: 12, color: T.textFaint, marginTop: 6 }}>
+                            {fe ? fe.levelLabel : ""} · {safeFocusIndex + 1} of {focusCount}
+                          </div>
                         </div>
                       </div>
                       <button className="sb-focusnav" style={arrow} onClick={() => stepFocus(1)} aria-label="Next person">
@@ -2795,11 +2818,16 @@ function App() {
                   `.sb-focusnav,.sb-focuschip{transition:border-color .15s ease,color .15s ease}`,
                   `.sb-focusnav:hover,.sb-focuschip:hover{border-color:${T.accent};color:${T.accent}}`,
                   ".sb-focusnav:active,.sb-focuschip:active{transform:scale(0.96)}",
-                  "@keyframes sbSlideNext{from{opacity:0;transform:translateX(26px)}to{opacity:1;transform:none}}",
-                  "@keyframes sbSlidePrev{from{opacity:0;transform:translateX(-26px)}to{opacity:1;transform:none}}",
-                  ".sb-slide-next{animation:sbSlideNext .22s ease-out}",
-                  ".sb-slide-prev{animation:sbSlidePrev .22s ease-out}",
-                  "@media (prefers-reduced-motion:reduce){.sb-slide-next,.sb-slide-prev{animation:none}}",
+                  // travels the full width of its container rather than nudging and
+                  // fading, so the new person arrives from the side you moved towards
+                  "@keyframes sbSlideNext{from{transform:translateX(100%)}to{transform:translateX(0)}}",
+                  "@keyframes sbSlidePrev{from{transform:translateX(-100%)}to{transform:translateX(0)}}",
+                  ".sb-slidein-next{animation:sbSlideNext .28s cubic-bezier(.22,.61,.36,1)}",
+                  ".sb-slidein-prev{animation:sbSlidePrev .28s cubic-bezier(.22,.61,.36,1)}",
+                  // the table slides inside .sb-table, which already clips overflow
+                  ".sb-focusmode.sb-slide-next > table{animation:sbSlideNext .28s cubic-bezier(.22,.61,.36,1)}",
+                  ".sb-focusmode.sb-slide-prev > table{animation:sbSlidePrev .28s cubic-bezier(.22,.61,.36,1)}",
+                  "@media (prefers-reduced-motion:reduce){.sb-slidein-next,.sb-slidein-prev,.sb-focusmode > table{animation:none}}",
                 ].concat(
                   // nothing to show for this person: a header of empty columns and a
                   // "No shifts" message is worse than a plain sentence
@@ -2973,7 +3001,7 @@ function App() {
                           )}
                         </td>
                       </tr>
-                      <tr>
+                      <tr className="sb-detailrow">
                         <td colSpan={14} style={{ padding: 0, borderBottom: detailOpen ? `1px solid ${T.divider}` : "none" }}>
                           <CollapseBody open={detailOpen}>
                             {/* Recessed, not another card. This used to be T.card on a
@@ -2989,7 +3017,7 @@ function App() {
                                 {e.sleepInfo.autoCount > 0 && <span style={S.chipStyle}>{e.sleepInfo.autoCount} sleepover{e.sleepInfo.autoCount === 1 ? "" : "s"}</span>}
                               </div>
                               <div className="sb-table" style={{ overflowX: "auto" }}>
-                                <table style={{ ...S.tableStyle, tableLayout: "fixed" }}>
+                                <table className="sb-detailtable" style={{ ...S.tableStyle, tableLayout: "fixed" }}>
                                   <colgroup>
                                     <col style={{ width: 118 }} /><col style={{ width: 76 }} /><col style={{ width: 76 }} />
                                     <col style={{ width: 66 }} /><col style={{ width: 190 }} /><col />
@@ -3048,7 +3076,7 @@ function App() {
                                                 </tr>
                                               );
                                             })}
-                                            <tr>
+                                            <tr className="sb-daytotal">
                                               <td colSpan={6} style={{ padding: "5px 9px 9px", fontSize: 11.5, color: T.textDim, borderTop: `1px solid ${T.divider}` }}>
                                                 {(() => {
                                                   const isSaturday = first.day === "Saturday" && !isPH;
