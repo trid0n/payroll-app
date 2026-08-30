@@ -2164,7 +2164,12 @@ function App() {
   const [focusMode, setFocusMode] = useState(true);
   const [focusIndex, setFocusIndex] = useState(0);
   const focusCount = perEmployee.length;
-  const safeFocusIndex = focusCount ? Math.min(focusIndex, focusCount - 1) : 0;
+  /* The cross-check is the last card in the deck rather than a mode of its own:
+     one extra slot past the last person, so stepping onto it is the same
+     arithmetic as stepping between people and going back is just ← again. */
+  const focusSlots = focusCount ? focusCount + 1 : 0;
+  const safeFocusIndex = focusSlots ? Math.min(focusIndex, focusSlots - 1) : 0;
+  const isCrossCheck = focusCount > 0 && safeFocusIndex === focusCount;
   const visibleEmployees = focusMode
     ? (perEmployee[safeFocusIndex] ? [perEmployee[safeFocusIndex]] : [])
     : perEmployee;
@@ -2262,8 +2267,8 @@ function App() {
     : focusPhase === "in" ? (focusDir < 0 ? "sb-in-prev" : "sb-in-next")
     : "";
   const stepFocus = useCallback((delta) => {
-    if (!focusCount) return;
-    const advance = (d) => setFocusIndex((i) => (Math.min(i, focusCount - 1) + d + focusCount) % focusCount);
+    if (!focusSlots) return;
+    const advance = (d) => setFocusIndex((i) => (Math.min(i, focusSlots - 1) + d + focusSlots) % focusSlots);
     // A press during someone else's move would otherwise throw away that move's
     // pending hand-over, so holding the arrow key advanced one person per burst
     // instead of one per press. Apply the outstanding step first, then start this
@@ -2278,7 +2283,7 @@ function App() {
       setFocusPhase("in");
     }, FOCUS_OUT_MS));
     focusTimers.current.push(setTimeout(() => setFocusPhase("idle"), FOCUS_OUT_MS + FOCUS_IN_MS + 40));
-  }, [focusCount]);
+  }, [focusSlots]);
 
   useEffect(() => {
     if (!focusMode) return;
@@ -2839,10 +2844,12 @@ function App() {
                             in place and the replacement animates in */}
                         <div key={`fh-${safeFocusIndex}`} className={focusAnimClass} style={{ textAlign: "center" }}>
                           <div className="sb-h1" style={{ fontFamily: "ui-serif, Georgia, serif", fontSize: 32, fontWeight: 600, color: T.text, lineHeight: 1.15 }}>
-                            {fe ? fe.name : ""}
+                            {isCrossCheck ? "Cross-check" : fe ? fe.name : ""}
                           </div>
                           <div style={{ fontSize: 12, color: T.textFaint, marginTop: 6 }}>
-                            {fe ? fe.levelLabel : ""} · {safeFocusIndex + 1} of {focusCount}
+                            {isCrossCheck
+                              ? `after everyone · ${focusCount} of ${focusCount} checked`
+                              : `${fe ? fe.levelLabel : ""} · ${safeFocusIndex + 1} of ${focusCount}`}
                           </div>
                         </div>
                       </div>
@@ -2903,7 +2910,7 @@ function App() {
                 className={focusMode
                   ? `sb-table sb-focusmode ${focusAnimClass}${focusAnimating ? " sb-animating" : ""}`
                   : "sb-table"}
-                style={{ overflowX: "auto", marginTop: 18 }}>
+                style={{ overflowX: "auto", marginTop: 18, display: isCrossCheck ? "none" : undefined }}>
                 <table style={S.tableStyle}>
                   <thead>
                     <tr>
@@ -3214,9 +3221,15 @@ function App() {
               <div className="sb-btnrow" style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap", alignItems: "center" }}>
                 <button className="sb-btn-hover" style={S.btnPrimary} onClick={commitSheet}><CheckCircle2 size={15} /> Commit this sheet</button>
               </div>
+              </>
+              )}
 
-              <div style={{ marginTop: 22, paddingTop: 18, borderTop: `1px solid ${T.divider}` }}>
-                <div style={{ fontWeight: 700, fontSize: 13, color: T.text, marginBottom: 4 }}>Cross-check against Payroller</div>
+              {/* Shown in the list as usual, and in one-at-a-time as the card after the
+                  last person — the cross-check is the thing you do once everyone has
+                  been read across, so it sits at the end of the run. */}
+              {(!focusMode || isCrossCheck) && (
+              <div style={{ marginTop: focusMode ? 4 : 22, paddingTop: focusMode ? 0 : 18, borderTop: focusMode ? "none" : `1px solid ${T.divider}` }}>
+                {!focusMode && <div style={{ fontWeight: 700, fontSize: 13, color: T.text, marginBottom: 4 }}>Cross-check against Payroller</div>}
                 <p style={{ fontSize: 12.5, color: T.textDim, marginTop: 4 }}>
                   Once you've entered this week into Payroller, select all the payslips there, copy, and paste the text below — it'll check hours, rates, breaks and km's against what Jibble gave you, and total everything up so you can compare against the Jibble figure above.
                 </p>
@@ -3332,7 +3345,6 @@ function App() {
                   </div>
                 )}
               </div>
-              </>
               )}
             </div>
           )}
