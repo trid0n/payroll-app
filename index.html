@@ -2147,6 +2147,47 @@ function App() {
   }, [roster, shiftsByRoster, holidaySet, levels, weeklyKmOverride, breakOverride, sleepoverOverride, kmSettings, allowances, approvedKmCandidates, hourOverride]);
 
   const activeEmployees = perEmployee.filter((e) => e.hasShifts);
+
+  /* ---- one-at-a-time focus mode ----
+     Reading a row off the middle of the list means scrolling back up to the
+     header to see which rate a column is. Showing one person at a time puts the
+     header directly above the row instead. It renders through the SAME table and
+     the SAME row markup, only filtered — so click-to-copy, edit-in-place and the
+     shift detail can't drift from the list view.
+
+     People with no shifts stay in the cycle rather than being skipped: the list
+     deliberately shows them so nobody drops out of a pay run unseen, and hiding
+     them here would undo that. */
+  const [focusMode, setFocusMode] = useState(false);
+  const [focusIndex, setFocusIndex] = useState(0);
+  const focusCount = perEmployee.length;
+  const safeFocusIndex = focusCount ? Math.min(focusIndex, focusCount - 1) : 0;
+  const visibleEmployees = focusMode
+    ? (perEmployee[safeFocusIndex] ? [perEmployee[safeFocusIndex]] : [])
+    : perEmployee;
+  const stepFocus = useCallback((delta) => {
+    setFocusIndex((i) => {
+      if (!focusCount) return 0;
+      const from = Math.min(i, focusCount - 1);
+      return (from + delta + focusCount) % focusCount;
+    });
+  }, [focusCount]);
+
+  useEffect(() => {
+    if (!focusMode) return;
+    const onKey = (ev) => {
+      if (ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
+      if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+      // never steal the caret from someone editing a figure
+      const t = ev.target || {};
+      const tag = String(t.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select" || t.isContentEditable) return;
+      ev.preventDefault();
+      stepFocus(ev.key === "ArrowRight" ? 1 : -1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [focusMode, stepFocus]);
   const grandTotalHours = activeEmployees.reduce((a, e) => a + e.totalHours, 0);
   const kmThresholdCrossers = activeEmployees.filter((e) => e.kmInfo.startYTD < (kmSettings.threshold || 5000) && e.kmInfo.endYTD >= (kmSettings.threshold || 5000));
 
@@ -2573,8 +2614,27 @@ function App() {
                 }}>
                   {activeEmployees.every((e) => expandedShiftDetail[e.id]) ? "Collapse all notes" : "Expand all notes"}
                 </button>
+                <button className="sb-btn-hover" style={S.btnGhost} onClick={() => setFocusMode((v) => !v)}>
+                  {focusMode ? "Show all" : "One at a time"}
+                </button>
               </div>
 
+              {focusMode && focusCount > 0 && (
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 16 }}>
+                  <button className="sb-btn-hover" style={{ ...S.btnGhost, padding: "6px 12px" }}
+                    onClick={() => stepFocus(-1)} aria-label="Previous person">‹</button>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>
+                      {perEmployee[safeFocusIndex] ? perEmployee[safeFocusIndex].name : ""}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: T.textFaint }}>
+                      {safeFocusIndex + 1} of {focusCount} — use ← and → to move between people
+                    </div>
+                  </div>
+                  <button className="sb-btn-hover" style={{ ...S.btnGhost, padding: "6px 12px" }}
+                    onClick={() => stepFocus(1)} aria-label="Next person">›</button>
+                </div>
+              )}
 
               <div className="sb-table" style={{ overflowX: "auto", marginTop: 18 }}>
                 <table style={S.tableStyle}>
@@ -2595,7 +2655,7 @@ function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {perEmployee.map((e) => {
+                    {visibleEmployees.map((e) => {
                       const lvl = levels[e.level] || levels.l21;
                       if (!e.hasShifts) {
                         return (
