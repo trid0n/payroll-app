@@ -2161,7 +2161,7 @@ function App() {
      People with no shifts stay in the cycle rather than being skipped: the list
      deliberately shows them so nobody drops out of a pay run unseen, and hiding
      them here would undo that. */
-  const [focusMode, setFocusMode] = useState(false);
+  const [focusMode, setFocusMode] = useState(true);
   const [focusIndex, setFocusIndex] = useState(0);
   const focusCount = perEmployee.length;
   const safeFocusIndex = focusCount ? Math.min(focusIndex, focusCount - 1) : 0;
@@ -2239,6 +2239,17 @@ function App() {
 
   // Which way the last move went, so the incoming person slides in from that side.
   const [focusDir, setFocusDir] = useState(1);
+
+  // A transform still counts towards scrollable overflow, so sliding the table in
+  // from the right briefly extends the scroll area of its overflow-x:auto wrapper
+  // and flashes a scrollbar. Clip for the length of the animation instead.
+  const [focusAnimating, setFocusAnimating] = useState(false);
+  useEffect(() => {
+    if (!focusMode) return undefined;
+    setFocusAnimating(true);
+    const t = setTimeout(() => setFocusAnimating(false), 420);
+    return () => clearTimeout(t);
+  }, [safeFocusIndex, focusMode]);
   const stepFocus = useCallback((delta) => {
     setFocusDir(delta);
     setFocusIndex((i) => {
@@ -2546,6 +2557,13 @@ function App() {
            OUTER row's odd/even position — so a whole detail panel was tinted or not
            depending on where that person happened to fall in the list, and the rows
            inside it striped against nothing. That is what made the nesting look off. */
+        /* Everything in a card is centred, headings and table cells alike. The one
+           exception is the Notes column of the shift detail, which holds real
+           sentences — centred prose with ragged edges both sides is hard to read. */
+        .sb-card { text-align: center; }
+        .sb-card table th, .sb-card table td { text-align: center !important; }
+        .sb-detailtable td:last-child, .sb-detailtable th:last-child { text-align: left !important; }
+        .sb-btnrow { justify-content: center; }
         /* Zebra striping removed rather than fixed. It keyed on tr:nth-child(even),
            but a person with shifts is TWO rows here (their figures plus a hidden
            shift-detail row) and a person without is one — so which rows landed on
@@ -2603,9 +2621,11 @@ function App() {
       `}</style>
 
       <div className="sb-headerpad" style={{ background: T.header, color: HEADER_TEXT, padding: "24px 24px", borderBottom: `1px solid ${T.divider}` }}>
-        <div style={{ maxWidth: 1440, margin: "0 auto", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
-          <div>
-            <div style={{ height: 30, marginBottom: 8, display: "flex", alignItems: "center" }}>
+        {/* The logo and title are centred, with Undo and the theme toggle pinned to
+            the right so they don't drag the title off centre. */}
+        <div style={{ maxWidth: 1440, margin: "0 auto", position: "relative", display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ height: 30, marginBottom: 8, display: "flex", alignItems: "center", justifyContent: "center" }}>
               {headerLogo ? (
                 <img src={headerLogo.src} alt="Support Beyond"
                   style={{ height: 30, width: 30 * headerLogo.ratio, display: "block" }} />
@@ -2615,7 +2635,7 @@ function App() {
             </div>
             <h1 className="sb-h1" style={{ fontFamily: "ui-serif, Georgia, serif", fontSize: 30, fontWeight: 600, margin: 0, color: HEADER_TEXT }}>Timesheet calculator</h1>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <div className="sb-headeractions" style={{ position: "absolute", top: 0, right: 0, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <button onClick={undo} disabled={undoStack.length === 0} title="Undo (Ctrl+Z)" style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.16)", borderRadius: 999, padding: "6px 14px 6px 10px", cursor: undoStack.length === 0 ? "default" : "pointer", color: HEADER_TEXT, fontSize: 12.5, fontWeight: 600, opacity: undoStack.length === 0 ? 0.45 : 1 }}>
               <Undo2 size={14} /> Undo
             </button>
@@ -2627,7 +2647,7 @@ function App() {
             {undoMsg || shareMsg}
           </div>
         )}
-        <div className="sb-nav" id="sb-tab-top" style={{ maxWidth: 1440, margin: "18px auto 0", display: "flex", gap: 6, flexWrap: "wrap" }}>
+        <div className="sb-nav" id="sb-tab-top" style={{ maxWidth: 1440, margin: "18px auto 0", display: "flex", justifyContent: "center", gap: 6, flexWrap: "wrap" }}>
           {NAV_ITEMS.map((n) => {
             const active = activeTab === n.id;
             return (
@@ -2662,8 +2682,10 @@ function App() {
           <CollapseBody open>
           {/* One-at-a-time is for reading one person's figures into Payroller, so
               everything that isn't that person gets out of the way: the import
-              controls here, and the commit and cross-check below the table. */}
-          {!focusMode && (
+              controls here, and the commit and cross-check below the table.
+              Only once a week is actually loaded, though — focus mode is the
+              default now, and hiding these before then leaves no way to import. */}
+          {(!focusMode || shifts.length === 0) && (
           <>
           <p style={{ fontSize: 13, color: T.textDim, marginTop: 6 }}>
             Needs a Jibble <strong>Time Entries</strong> export specifically — that's the one with shift notes, so km's,
@@ -2710,13 +2732,14 @@ function App() {
               </p>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 14 }}>
                 {pendingKmQuestions.map((c) => (
-                  <div key={c.id} style={{ background: T.page, border: `1px solid ${T.divider}`, borderRadius: 10, padding: "10px 14px", display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-                    <div style={{ minWidth: 140, flex: 1 }}>
-                      <div style={{ fontSize: 12.5, fontWeight: 700, color: T.text }}>{c.personName}</div>
-                      <div style={{ fontSize: 11.5, fontStyle: "italic", color: T.textFaint, marginTop: 2, lineHeight: 1.5 }}>❝{contextSnippet(c.note, c.start)}❞</div>
-                    </div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: T.text, whiteSpace: "nowrap" }}>Add {c.value}km?</div>
-                    <div style={{ display: "flex", gap: 8 }}>
+                  /* The note and the question sit on one line, in that order, because
+                     the whole job here is reading the note and deciding — they have to
+                     be next to each other, not at opposite ends of a row. */
+                  <div key={c.id} style={{ background: T.page, border: `1px solid ${T.divider}`, borderRadius: 10, padding: "10px 14px" }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, marginBottom: 5 }}>{c.personName}</div>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, flexWrap: "wrap" }}>
+                      <div style={{ fontSize: 12.5, fontStyle: "italic", color: T.text, lineHeight: 1.5 }}>❝{contextSnippet(c.note, c.start)}❞</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: T.text, whiteSpace: "nowrap" }}>{c.value} km?</div>
                       <button className="sb-focuschip" style={{ ...focusChip, color: T.good }}
                         onClick={() => setApprovedKmCandidates((p) => ({ ...p, [c.id]: "approved" }))}>Yes</button>
                       <button className="sb-focuschip" style={focusChip}
@@ -2822,11 +2845,13 @@ function App() {
                   // fading, so the new person arrives from the side you moved towards
                   "@keyframes sbSlideNext{from{transform:translateX(100%)}to{transform:translateX(0)}}",
                   "@keyframes sbSlidePrev{from{transform:translateX(-100%)}to{transform:translateX(0)}}",
-                  ".sb-slidein-next{animation:sbSlideNext .28s cubic-bezier(.22,.61,.36,1)}",
-                  ".sb-slidein-prev{animation:sbSlidePrev .28s cubic-bezier(.22,.61,.36,1)}",
-                  // the table slides inside .sb-table, which already clips overflow
-                  ".sb-focusmode.sb-slide-next > table{animation:sbSlideNext .28s cubic-bezier(.22,.61,.36,1)}",
-                  ".sb-focusmode.sb-slide-prev > table{animation:sbSlidePrev .28s cubic-bezier(.22,.61,.36,1)}",
+                  // decelerating curve, long enough to read as movement rather than a jump
+                  ".sb-slidein-next{animation:sbSlideNext .38s cubic-bezier(.16,1,.3,1)}",
+                  ".sb-slidein-prev{animation:sbSlidePrev .38s cubic-bezier(.16,1,.3,1)}",
+                  ".sb-focusmode.sb-slide-next > table{animation:sbSlideNext .38s cubic-bezier(.16,1,.3,1)}",
+                  ".sb-focusmode.sb-slide-prev > table{animation:sbSlidePrev .38s cubic-bezier(.16,1,.3,1)}",
+                  // clipped only while it moves, so no scrollbar flashes in from the right
+                  ".sb-table.sb-animating{overflow:hidden !important}",
                   "@media (prefers-reduced-motion:reduce){.sb-slidein-next,.sb-slidein-prev,.sb-focusmode > table{animation:none}}",
                 ].concat(
                   // nothing to show for this person: a header of empty columns and a
@@ -2840,7 +2865,9 @@ function App() {
               )}
 
               <div key={focusMode ? `ft-${safeFocusIndex}` : "ft-list"}
-                className={focusMode ? `sb-table sb-focusmode ${focusDir < 0 ? "sb-slide-prev" : "sb-slide-next"}` : "sb-table"}
+                className={focusMode
+                  ? `sb-table sb-focusmode ${focusDir < 0 ? "sb-slide-prev" : "sb-slide-next"}${focusAnimating ? " sb-animating" : ""}`
+                  : "sb-table"}
                 style={{ overflowX: "auto", marginTop: 18 }}>
                 <table style={S.tableStyle}>
                   <thead>
@@ -3004,13 +3031,12 @@ function App() {
                       <tr className="sb-detailrow">
                         <td colSpan={14} style={{ padding: 0, borderBottom: detailOpen ? `1px solid ${T.divider}` : "none" }}>
                           <CollapseBody open={detailOpen}>
-                            {/* Recessed, not another card. This used to be T.card on a
-                                T.card parent, so the two boxes were the same fill and the
-                                border did all the work — which is what made the nesting
-                                read as arbitrary. Page colour sits it *under* the card in
-                                both themes; the divider hairline keeps it legible in light
-                                mode, where the two tones are close. */}
-                            <div style={{ background: T.page, border: `1px solid ${T.divider}`, borderRadius: 10, padding: 12, margin: "0 4px 10px" }}>
+                            {/* No box at all. Tinting it and recessing it were both still
+                                a container inside a container, which is what looked wrong
+                                to begin with. The detail is part of the card it opens in,
+                                so it sits straight on it: the table's own rules and the
+                                day-total tint carry the structure. */}
+                            <div style={{ padding: "2px 2px 12px", margin: "0 4px" }}>
                               <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
                                 {weekKmAuto > 0 && <span style={S.chipStyle}>{weekKmAuto}km</span>}
                                 {e.breakInfo.count > 0 && <span style={S.chipStyle}>{e.breakInfo.count} break{e.breakInfo.count === 1 ? "" : "s"}</span>}
@@ -3832,7 +3858,7 @@ function SectionTitle({ title, icon: Icon, T }) {
 function SectionHeader({ title, icon: Icon, T, discreet, hint }) {
   const iconSize = discreet ? 26 : 30;
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", boxSizing: "border-box" }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", boxSizing: "border-box" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
         {Icon && (
           <span style={{ display: "inline-flex", width: iconSize, height: iconSize, borderRadius: 8, alignItems: "center", justifyContent: "center", background: discreet ? "transparent" : T.accentSoft, border: discreet ? `1px solid ${T.cardBorder}` : "none", color: discreet ? T.textDim : T.accent, flexShrink: 0 }}>
