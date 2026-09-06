@@ -1815,6 +1815,10 @@ function App() {
       // A fresh week gets a fresh set of km questions, asked before anything else.
       setApprovedKmCandidates({});
       setKmReviewDone(false);
+      // Start the run at the first person. Without this, importing straight after a
+      // commit would open on the cross-check card, since that is where the previous
+      // week was left.
+      setFocusIndex(0);
       setParseMsg(skipped ? `CSV loaded (skipped ${skipped} blank row${skipped === 1 ? "" : "s"}).` : "CSV loaded.");
       setMapping((prev) => {
         const next = { ...prev };
@@ -2169,7 +2173,10 @@ function App() {
      arithmetic as stepping between people and going back is just ← again. */
   const focusSlots = focusCount ? focusCount + 1 : 0;
   const safeFocusIndex = focusSlots ? Math.min(focusIndex, focusSlots - 1) : 0;
-  const isCrossCheck = focusCount > 0 && safeFocusIndex === focusCount;
+  // Only meaningful inside one-at-a-time. Without the focusMode guard, hitting
+  // "Show all" while parked on the cross-check card left the index on that slot,
+  // which hid the whole list table and left just the totals and the cross-check.
+  const isCrossCheck = focusMode && focusCount > 0 && safeFocusIndex === focusCount;
   const visibleEmployees = focusMode
     ? (perEmployee[safeFocusIndex] ? [perEmployee[safeFocusIndex]] : [])
     : perEmployee;
@@ -2639,6 +2646,18 @@ function App() {
         .sb-dd-panel { animation: sb-dd-in 0.18s ease 0.03s both; }
         .sb-card { transition: border-color 0.2s ease; }
         a { color: ${T.accent}; }
+        /* The reminders and the Undo/theme controls are pinned to the two top corners
+           so the title can sit centred between them. Once there isn't room for all
+           three across, drop them back into normal flow rather than letting them
+           overlap the title. */
+        @media (max-width: 1080px) {
+          .sb-headerreminders, .sb-headeractions {
+            position: static !important; max-width: none !important; text-align: center !important;
+            justify-content: center;
+          }
+          .sb-headerreminders { margin-bottom: 10px; }
+          .sb-headeractions { margin-top: 12px; }
+        }
         @media (max-width: 640px) {
           .sb-pagepad { padding: 12px !important; }
           .sb-headerpad { padding: 20px 16px !important; }
@@ -2668,6 +2687,13 @@ function App() {
               )}
             </div>
             <h1 className="sb-h1" style={{ fontFamily: "ui-serif, Georgia, serif", fontSize: 30, fontWeight: 600, margin: 0, color: HEADER_TEXT }}>Timesheet calculator</h1>
+          </div>
+          <div className="sb-headerreminders" style={{ position: "absolute", top: 0, left: 0, textAlign: "left", maxWidth: 300 }}>
+            <div style={{ fontWeight: 700, fontSize: 10, textTransform: "uppercase", letterSpacing: "0.07em", color: HEADER_EYEBROW, marginBottom: 3 }}>Reminders</div>
+            <div style={{ fontSize: 11.5, lineHeight: 1.65, color: "#C7D8EC" }}>
+              <div>Take 40% off pre-tax income for Brytnie (nearest $)</div>
+              <div>Total Jibble hrs = total payroller hrs (+/- 0.1)</div>
+            </div>
           </div>
           <div className="sb-headeractions" style={{ position: "absolute", top: 0, right: 0, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <button onClick={undo} disabled={undoStack.length === 0} title="Undo (Ctrl+Z)" style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.16)", borderRadius: 999, padding: "6px 14px 6px 10px", cursor: undoStack.length === 0 ? "default" : "pointer", color: HEADER_TEXT, fontSize: 12.5, fontWeight: 600, opacity: undoStack.length === 0 ? 0.45 : 1 }}>
@@ -2725,13 +2751,8 @@ function App() {
             Needs a Jibble <strong>Time Entries</strong> export specifically — that's the one with shift notes, so km's,
             "1 break @ $x" claims, and "sleepover" mentions all get picked up automatically.
           </p>
-          <div style={{ marginTop: 12, background: T.accentSoft, border: `1px solid ${T.cardBorder}`, borderRadius: 10, padding: "10px 14px" }}>
-            <div style={{ fontWeight: 700, fontSize: 10.5, textTransform: "uppercase", letterSpacing: "0.06em", color: T.textDim, marginBottom: 6 }}>Reminders</div>
-            <div style={{ fontSize: 12.5, color: T.text, lineHeight: 1.7 }}>
-              <div>Take 40% off pre-tax income for Brytnie (nearest $)</div>
-              <div>Total Jibble hrs = total payroller hrs (+/- 0.1)</div>
-            </div>
-          </div>
+          {/* the reminders moved to the page header, where they're visible on every
+              tab instead of only on the import screen */}
           <div className="sb-btnrow" style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginTop: 12 }}>
             <button className="sb-btn-hover" style={S.btnPrimary} onClick={() => fileInputRef.current?.click()}><Upload size={15} /> Upload Jibble Time Entries CSV</button>
             <input ref={fileInputRef} type="file" accept=".csv,text/csv" onChange={onFileChange} style={{ display: "none" }} />
@@ -3341,8 +3362,25 @@ function App() {
                         </tbody>
                       </table>
                     </div>
-                    <div style={{ fontSize: 11, color: T.textFaint, marginTop: 8 }}>Each cell reads Jibble / Payroller. Anything highlighted in orange is off by more than a rounding margin — worth a second look. "Other units" is breaks + sleepovers combined — Payroller lists one "Other - General" line per allowance rate, and they're added up, so 2 breaks at one rate plus 3 at another reads as 5. It still can't tell you which type a mismatch belongs to.</div>
                   </div>
+                )}
+
+                {/* Committing lives on this card in one-at-a-time: it is the end of the
+                    run, after every person and the cross-check. The km warning comes
+                    with it — it is the one thing you must act on before committing. */}
+                {focusMode && (
+                  <>
+                    {kmThresholdCrossers.length > 0 && (
+                      <div style={{ marginTop: 18, background: T.warnSoft, border: `1px solid ${T.warn}55`, borderRadius: 10, padding: "10px 14px", fontSize: 12.5, color: T.warn, fontWeight: 600 }}>
+                        ⚠ {kmThresholdCrossers.map((e) => e.name).join(", ")} {kmThresholdCrossers.length === 1 ? "crosses" : "cross"} 5,000km this week — remember to update {kmThresholdCrossers.length === 1 ? "their" : "their"} km rate in Payroller.
+                      </div>
+                    )}
+                    <div style={{ display: "flex", justifyContent: "center", marginTop: 22, paddingTop: 18, borderTop: `1px solid ${T.divider}` }}>
+                      <button className="sb-btn-hover" style={S.btnPrimary} onClick={commitSheet}>
+                        <CheckCircle2 size={15} /> Commit this sheet
+                      </button>
+                    </div>
+                  </>
                 )}
               </div>
               )}
