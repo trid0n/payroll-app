@@ -326,9 +326,16 @@ Payroller by hand.
   are unanswered, `kmReviewOpen` holds back the whole week's figures and shows
   the questions instead. They used to be asked inline, one prompt buried in each
   person's km cell, which meant hunting the table for them while reading km
-  totals that were still going to change. Answering the last one drops the gate
-  on its own; "Skip the rest" sets `kmReviewDone`. Skipped ones count as no and
-  still appear in their person's km cell afterwards.
+  totals that were still going to change. Answering every question is the only
+  way out — there is deliberately no skip, so a week's figures can't be read
+  while a number is still undecided. Answering the last one drops the gate.
+
+  The questions have no card chrome and no separators, and the whole panel
+  centres. The note box is a fixed `KM_QUESTION_WIDTH` with its contents
+  right-aligned inside it: that is what keeps every row's Yes/No in the same
+  place while the cluster still centres. Sizing it to the note instead moves
+  the buttons around, and pinning them to the panel edge strands them away
+  from the question.
 - **Breaks**: `"N break(s) @ $X"` or `"N break(s) at $X"` (both separators occur
   in practice), matched against the two configured break-allowance amounts.
 - **Sleepovers**: notes containing "sleepover", "slept over", or "overnight
@@ -467,6 +474,16 @@ for more of this shape before assuming the port is finished.
   that looks like it only does I/O.
 
 ### Bugs found only by exercising the app
+
+- **A deleted piece of state whose setter was left behind.** Removing the
+  `kmReviewDone` state left one `setKmReviewDone(false)` in `handleParse`. It
+  threw a `ReferenceError` *after* `setShifts` and *before* `setMapping`, so the
+  week imported but nobody matched the roster — and the symptom, "3 names in the
+  CSV didn't match anyone", pointed at `matchNameToRoster`, nowhere near the
+  edit. Two lessons: after deleting state, grep for every setter, not just the
+  reader; and when something breaks in a place you didn't touch, read the
+  console before theorising, because a throw part-way through an event handler
+  leaves exactly this kind of half-applied state.
 
 - **Invisible error message.** The fatal-error heading hardcoded the dark
   theme's `#EEF1F7` while the pre-paint script switched the splash background to

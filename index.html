@@ -1814,7 +1814,6 @@ function App() {
       setParseOk(true);
       // A fresh week gets a fresh set of km questions, asked before anything else.
       setApprovedKmCandidates({});
-      setKmReviewDone(false);
       // Start the run at the first person. Without this, importing straight after a
       // commit would open on the cross-check card, since that is where the previous
       // week was left.
@@ -2218,7 +2217,6 @@ function App() {
      reading km totals that were still going to change. Now they're asked as a
      single step straight after the import, and the week's figures aren't shown
      until they're answered. */
-  const [kmReviewDone, setKmReviewDone] = useState(false);
   const pendingKmQuestions = perEmployee.flatMap((e) =>
     e.hasShifts
       ? kmCandidatesFor(e.id)
@@ -2226,7 +2224,7 @@ function App() {
           .map((c) => ({ ...c, personName: e.name }))
       : []
   );
-  const kmReviewOpen = shifts.length > 0 && !kmReviewDone && pendingKmQuestions.length > 0;
+  const kmReviewOpen = shifts.length > 0 && pendingKmQuestions.length > 0;
 
   const focusChip = {
     all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6,
@@ -2782,15 +2780,15 @@ function App() {
                 {pendingKmQuestions.length} number{pendingKmQuestions.length === 1 ? "" : "s"} in the notes might be km
               </div>
               <p style={{ fontSize: 12.5, color: T.textDim, margin: "4px auto 0", maxWidth: 640 }}>
-                These aren't written as km, so nothing has been counted yet — a stray number is more often
-                a name, a time or a score. Answer these and the week's figures follow.
+                These aren't written as km, so nothing has been counted yet, please confirm if
+                they should be counted as km's.
               </p>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 14 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 16 }}>
                 {pendingKmQuestions.map((c) => (
                   /* The note and the question sit on one line, in that order, because
                      the whole job here is reading the note and deciding — they have to
                      be next to each other, not at opposite ends of a row. */
-                  <div key={c.id} style={{ background: T.page, border: `1px solid ${T.divider}`, borderRadius: 10, padding: "10px 14px" }}>
+                  <div key={c.id}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, marginBottom: 5 }}>{c.personName}</div>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, flexWrap: "wrap" }}>
                       {/* Fixed width, contents right-aligned inside it. The notes are all
@@ -2812,10 +2810,6 @@ function App() {
                     </div>
                   </div>
                 ))}
-              </div>
-              <div style={{ display: "flex", gap: 12, marginTop: 16, alignItems: "center", justifyContent: "center", flexWrap: "wrap" }}>
-                <button className="sb-btn-hover" style={S.btnPrimary} onClick={() => setKmReviewDone(true)}>Skip the rest and show the week</button>
-                <span style={{ fontSize: 11.5, color: T.textFaint }}>Anything skipped counts as no, and can still be set per person afterwards.</span>
               </div>
             </div>
           )}
