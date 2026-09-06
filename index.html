@@ -3092,7 +3092,7 @@ function App() {
                         </td>
                       </tr>
                       <tr className="sb-detailrow">
-                        <td colSpan={14} style={{ padding: 0, borderBottom: detailOpen ? `1px solid ${T.divider}` : "none" }}>
+                        <td colSpan={14} style={{ padding: 0 }}>
                           <CollapseBody open={detailOpen}>
                             {/* No box at all. Tinting it and recessing it were both still
                                 a container inside a container, which is what looked wrong
@@ -3100,7 +3100,7 @@ function App() {
                                 so it sits straight on it: the table's own rules and the
                                 day-total tint carry the structure. */}
                             <div style={{ padding: "2px 2px 12px", margin: "0 4px" }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+                              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
                                 {weekKmAuto > 0 && <span style={S.chipStyle}>{weekKmAuto}km</span>}
                                 {e.breakInfo.count > 0 && <span style={S.chipStyle}>{e.breakInfo.count} break{e.breakInfo.count === 1 ? "" : "s"}</span>}
                                 {e.sleepInfo.autoCount > 0 && <span style={S.chipStyle}>{e.sleepInfo.autoCount} sleepover{e.sleepInfo.autoCount === 1 ? "" : "s"}</span>}
