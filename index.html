@@ -2792,13 +2792,20 @@ function App() {
                      be next to each other, not at opposite ends of a row. */
                   <div key={c.id} style={{ background: T.page, border: `1px solid ${T.divider}`, borderRadius: 10, padding: "10px 14px" }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, marginBottom: 5 }}>{c.personName}</div>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, flexWrap: "wrap" }}>
-                      <div style={{ fontSize: 12.5, fontStyle: "italic", color: T.text, lineHeight: 1.5 }}>❝{contextSnippet(c.note, c.start)}❞</div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: T.text, whiteSpace: "nowrap" }}>{c.value} km?</div>
-                      <button className="sb-focuschip" style={{ ...focusChip, color: T.good }}
-                        onClick={() => setApprovedKmCandidates((p) => ({ ...p, [c.id]: "approved" }))}>Yes</button>
-                      <button className="sb-focuschip" style={focusChip}
-                        onClick={() => setApprovedKmCandidates((p) => ({ ...p, [c.id]: "rejected" }))}>No</button>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", minWidth: 0 }}>
+                        <div style={{ fontSize: 12.5, fontStyle: "italic", color: T.text, lineHeight: 1.5 }}>❝{contextSnippet(c.note, c.start)}❞</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: T.text, whiteSpace: "nowrap" }}>{c.value} km?</div>
+                      </div>
+                      {/* Pinned to the card's right edge, not left to fall wherever the
+                          note ends: the notes are different lengths, so a centred row put
+                          every card's Yes/No in a different place down the list. */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                        <button className="sb-focuschip" style={{ ...focusChip, color: T.good }}
+                          onClick={() => setApprovedKmCandidates((p) => ({ ...p, [c.id]: "approved" }))}>Yes</button>
+                        <button className="sb-focuschip" style={focusChip}
+                          onClick={() => setApprovedKmCandidates((p) => ({ ...p, [c.id]: "rejected" }))}>No</button>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -3100,11 +3107,6 @@ function App() {
                                 so it sits straight on it: the table's own rules and the
                                 day-total tint carry the structure. */}
                             <div style={{ padding: "2px 2px 12px", margin: "0 4px" }}>
-                              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-                                {weekKmAuto > 0 && <span style={S.chipStyle}>{weekKmAuto}km</span>}
-                                {e.breakInfo.count > 0 && <span style={S.chipStyle}>{e.breakInfo.count} break{e.breakInfo.count === 1 ? "" : "s"}</span>}
-                                {e.sleepInfo.autoCount > 0 && <span style={S.chipStyle}>{e.sleepInfo.autoCount} sleepover{e.sleepInfo.autoCount === 1 ? "" : "s"}</span>}
-                              </div>
                               <div className="sb-table" style={{ overflowX: "auto" }}>
                                 <table className="sb-detailtable" style={{ ...S.tableStyle, tableLayout: "fixed" }}>
                                   <colgroup>
@@ -3195,6 +3197,11 @@ function App() {
                                     })()}
                                   </tbody>
                                 </table>
+                              </div>
+                              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, flexWrap: "wrap", marginTop: 12 }}>
+                                {weekKmAuto > 0 && <span style={S.chipStyle}>{weekKmAuto}km</span>}
+                                {e.breakInfo.count > 0 && <span style={S.chipStyle}>{e.breakInfo.count} break{e.breakInfo.count === 1 ? "" : "s"}</span>}
+                                {e.sleepInfo.autoCount > 0 && <span style={S.chipStyle}>{e.sleepInfo.autoCount} sleepover{e.sleepInfo.autoCount === 1 ? "" : "s"}</span>}
                               </div>
                             </div>
                           </CollapseBody>
