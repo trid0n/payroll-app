@@ -2777,11 +2777,11 @@ function App() {
           )}
 
           {kmReviewOpen && (
-            <div style={{ marginTop: 22, paddingTop: 18, borderTop: `1px solid ${T.divider}` }}>
+            <div style={{ marginTop: 22, paddingTop: 18, borderTop: `1px solid ${T.divider}`, textAlign: "center" }}>
               <div style={{ fontWeight: 700, fontSize: 13, color: T.text, marginBottom: 4 }}>
                 {pendingKmQuestions.length} number{pendingKmQuestions.length === 1 ? "" : "s"} in the notes might be km
               </div>
-              <p style={{ fontSize: 12.5, color: T.textDim, marginTop: 4, maxWidth: 640 }}>
+              <p style={{ fontSize: 12.5, color: T.textDim, margin: "4px auto 0", maxWidth: 640 }}>
                 These aren't written as km, so nothing has been counted yet — a stray number is more often
                 a name, a time or a score. Answer these and the week's figures follow.
               </p>
@@ -2791,16 +2791,18 @@ function App() {
                      the whole job here is reading the note and deciding — they have to
                      be next to each other, not at opposite ends of a row. */
                   <div key={c.id} style={{ background: T.page, border: `1px solid ${T.divider}`, borderRadius: 10, padding: "10px 14px" }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 12, flexWrap: "wrap" }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, flexShrink: 0 }}>{c.personName}</div>
-                      <div style={{ flex: "1 1 auto", minWidth: 0, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 12, flexWrap: "wrap" }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, marginBottom: 5 }}>{c.personName}</div>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, flexWrap: "wrap" }}>
+                      {/* Fixed width, contents right-aligned inside it. The notes are all
+                          different lengths, so letting this size to its content moved every
+                          card's Yes/No somewhere different down the list — and pinning the
+                          buttons to the card edge instead stranded them away from the
+                          question. A fixed box keeps the cluster centred, the buttons in
+                          line, and the question right next to them. */}
+                      <div style={{ width: KM_QUESTION_WIDTH, maxWidth: "100%", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 12, flexWrap: "wrap" }}>
                         <div style={{ fontSize: 12.5, fontStyle: "italic", color: T.text, lineHeight: 1.5 }}>❝{contextSnippet(c.note, c.start)}❞</div>
                         <div style={{ fontSize: 14, fontWeight: 700, color: T.text, whiteSpace: "nowrap" }}>{c.value} km?</div>
                       </div>
-                      {/* The whole row hangs off the right edge: the notes are different
-                          lengths, so anything left-aligned put every card's Yes/No in a
-                          different place down the list — but pinning only the buttons
-                          right stranded them away from the question they answer. */}
                       <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
                         <button className="sb-focuschip" style={{ ...focusChip, color: T.good }}
                           onClick={() => setApprovedKmCandidates((p) => ({ ...p, [c.id]: "approved" }))}>Yes</button>
@@ -2811,7 +2813,7 @@ function App() {
                   </div>
                 ))}
               </div>
-              <div style={{ display: "flex", gap: 12, marginTop: 16, alignItems: "center", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: 12, marginTop: 16, alignItems: "center", justifyContent: "center", flexWrap: "wrap" }}>
                 <button className="sb-btn-hover" style={S.btnPrimary} onClick={() => setKmReviewDone(true)}>Skip the rest and show the week</button>
                 <span style={{ fontSize: 11.5, color: T.textFaint }}>Anything skipped counts as no, and can still be set per person afterwards.</span>
               </div>
@@ -3926,6 +3928,11 @@ function shortText(s, len) { return s.length > len ? s.slice(0, len - 3) + "…"
 // "...played 9 holes..." reads very differently from "...9km..." even
 // though both would be truncated the same way if we just showed the start
 // of a long note).
+// Wide enough for the longest snippet contextSnippet can return at its default
+// radius. The km questions size their note box to this rather than to their own
+// text, which is what keeps every card's Yes/No in the same place.
+const KM_QUESTION_WIDTH = 440;
+
 function contextSnippet(note, pos, radius = 28) {
   const start = Math.max(0, pos - radius);
   const end = Math.min(note.length, pos + radius);
