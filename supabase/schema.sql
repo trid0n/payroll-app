@@ -14,6 +14,28 @@
 -- pages on read and upserts-and-prunes on write.
 -- ===========================================================================
 
+-- ===== wrong-project guard =====
+-- Run this file against the wrong Supabase project and every statement below
+-- "succeeds" — they all create things rather than touch existing ones — so
+-- there is no error to notice, and the app keeps failing for reasons that
+-- point everywhere except the real cause. That has already happened once: the
+-- keep-alive table was created on a different project, and the symptom looked
+-- like a stuck PostgREST schema cache for half an hour.
+--
+-- Every Supabase project's database is named `postgres` and the SQL Editor
+-- shows no project name, so there is nothing built in to check. This is the
+-- next best thing: a database that already holds tables but has no
+-- payroll_config is somebody else's project. A genuinely empty one is a first
+-- run and is allowed through.
+do $$
+begin
+  if to_regclass('public.payroll_config') is null
+     and exists (select 1 from pg_tables where schemaname = 'public') then
+    raise exception
+      'Wrong project: this database has tables of its own but no payroll_config. Open https://supabase.com/dashboard/project/grspmjuuqfvjkwlswioj/sql/new and run it there.';
+  end if;
+end $$;
+
 -- ===== helper: auto-bump updated_at =====
 create or replace function public.set_updated_at()
 returns trigger language plpgsql as $$

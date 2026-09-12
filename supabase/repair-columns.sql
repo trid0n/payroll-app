@@ -10,6 +10,19 @@
 -- are very few columns that CAN go missing — which is the point.
 -- ===========================================================================
 
+-- ===== wrong-project guard =====
+-- Every Supabase project's database is named `postgres` and the SQL Editor
+-- names no project, so it is easy to run this against the wrong one and see
+-- nothing but successes. This file only makes sense on the payroll database,
+-- so it refuses to run anywhere payroll_config doesn't already exist.
+do $$
+begin
+  if to_regclass('public.payroll_config') is null then
+    raise exception
+      'Wrong project: payroll_config does not exist here. Open https://supabase.com/dashboard/project/grspmjuuqfvjkwlswioj/sql/new and run it there.';
+  end if;
+end $$;
+
 create table if not exists public.payroll_config (
   id text primary key default 'main'
 );

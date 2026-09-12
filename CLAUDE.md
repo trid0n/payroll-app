@@ -404,6 +404,16 @@ pasting it into **SQL Editor → New query → Run**. So:
 - Prefer putting the new thing in JSONB, where it needs no migration at all.
 - If you genuinely need a column, update `schema.sql`, write the code to work
   without it, and say **plainly which behaviour is dead until the SQL is run**.
+- **Every SQL file starts with a wrong-project guard, and new ones must too.**
+  Liam has more than one Supabase project, every project's database is named
+  `postgres`, and the SQL Editor names no project anywhere on screen — so SQL
+  pasted into the wrong tab runs happily and reports success. It has already
+  cost an hour: the keep-alive table was created on another project, and the
+  symptom read exactly like a stuck PostgREST schema cache. `current_database()`
+  does **not** distinguish projects; the only reliable tell is whether the
+  payroll tables are there. The guard raises an exception unless
+  `payroll_config` exists (`schema.sql` also allows a completely empty database,
+  since that is a legitimate first run).
 - **Never trust a "migration confirmed run" note**, including one you wrote. The
   cheap check is to attempt a write and read the error. PostgREST names a
   missing column in a `PGRST204`.
