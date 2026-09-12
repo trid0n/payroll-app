@@ -52,6 +52,23 @@ drop trigger if exists set_updated_at on public.committed_sheets;
 create trigger set_updated_at before update on public.committed_sheets
   for each row execute function public.set_updated_at();
 
+-- ===== keep-alive heartbeat =====
+-- Exists only so the nightly ping can WRITE, not just read. A daily read of
+-- payroll_config ran successfully for 18 consecutive days and Supabase still
+-- scheduled the project for pausing, so a read on its own does not clear
+-- whatever bar their inactivity scan uses.
+--
+-- It is a separate table on purpose. Writing to payroll_config instead would
+-- bump its updated_at every few hours, and the unsaved-work stash decides
+-- whether to replay by comparing its own timestamp against exactly that
+-- column — a heartbeat would make the app discard real unsaved work as stale.
+create table if not exists public.keepalive (
+  id         text primary key default 'main',
+  pinged_at  timestamptz not null default now()
+);
+
+insert into public.keepalive (id) values ('main') on conflict (id) do nothing;
+
 -- ===========================================================================
 -- ROW LEVEL SECURITY
 --
@@ -70,7 +87,7 @@ create trigger set_updated_at before update on public.committed_sheets
 do $$
 declare t text;
 begin
-  foreach t in array array['payroll_config','committed_sheets']
+  foreach t in array array['payroll_config','committed_sheets','keepalive']
   loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists %I_open on public.%I', t, t);

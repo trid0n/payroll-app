@@ -1,17 +1,24 @@
 name: Supabase keep-alive
 
-# Supabase's free tier pauses a project after 7 days with no requests. One
-# request a day is enough to keep it awake.
+# Supabase pauses a free-tier project that goes without "sufficient activity"
+# for 7 days. What counts as sufficient is not documented, and one read a day
+# is demonstrably not it: this workflow read payroll_config successfully on 18
+# consecutive days and Supabase still scheduled the project for pausing.
+#
+# So the ping now writes as well as reads, and runs four times a day instead of
+# once. Nothing here can be guaranteed against an undocumented heuristic — the
+# only certain fix is the paid plan — but a write every six hours is a much
+# harder thing to score as idle than a single read.
 on:
   schedule:
-    - cron: '17 3 * * *'
+    - cron: '17 */6 * * *'
   workflow_dispatch: {}
 
 jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping Supabase REST API
+      - name: Ping Supabase
         # The URL and key below are HARDCODED ON PURPOSE — do not "fix" this by
         # moving them into repository secrets. They are the same public values
         # already embedded in index.html and served to every visitor, so secrets
@@ -20,8 +27,33 @@ jobs:
         # workflow fails every single night, with a failure email nobody reads as
         # the only signal. That has already happened once on another project.
         run: |
+          set -euo pipefail
+          URL="https://grspmjuuqfvjkwlswioj.supabase.co/rest/v1"
           KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdyc3BtanV1cWZ2amt3bHN3aW9qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc2NjUyNTYsImV4cCI6MjEwMzI0MTI1Nn0.19IwDPKIUcvnM4yaEVYg2-l2d5pmTDqYfG7dGlhzx8s"
-          curl -sf "https://grspmjuuqfvjkwlswioj.supabase.co/rest/v1/payroll_config?select=id&limit=1" \
-            -H "apikey: $KEY" \
-            -H "Authorization: Bearer $KEY" \
-            -o /dev/null
+
+          echo "read:"
+          curl -sf "$URL/payroll_config?select=id&limit=1" \
+            -H "apikey: $KEY" -H "Authorization: Bearer $KEY"
+          echo
+
+          # The write is the point of this job. If it starts failing with a 404
+          # or PGRST205, the keepalive table is missing: run supabase/schema.sql
+          # in the Supabase SQL Editor. Failing the job is deliberate — a
+          # heartbeat that has silently stopped beating is how the database gets
+          # paused without anyone noticing.
+          echo "write:"
+          code=$(curl -s -o /tmp/body -w '%{http_code}' -X PATCH \
+            "$URL/keepalive?id=eq.main" \
+            -H "apikey: $KEY" -H "Authorization: Bearer $KEY" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=representation" \
+            -d "{\"pinged_at\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}")
+          cat /tmp/body; echo
+          if [ "$code" != "200" ]; then
+            echo "::error::keepalive write returned HTTP $code — if this is 404/PGRST205, run supabase/schema.sql"
+            exit 1
+          fi
+          if [ "$(cat /tmp/body)" = "[]" ]; then
+            echo "::error::keepalive write matched no row — run supabase/schema.sql to seed id='main'"
+            exit 1
+          fi

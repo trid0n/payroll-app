@@ -100,7 +100,7 @@ logo.png                       the supplied Support Beyond artwork, untouched
 supabase/schema.sql            run this in the SQL Editor. Re-runnable.
 supabase/repair-columns.sql    run if saves start failing
 supabase/lock-down.sql         optional: put the app behind a login (not run)
-.github/workflows/keepalive.yml  daily ping so Supabase doesn't pause
+.github/workflows/keepalive.yml  6-hourly read + write so Supabase doesn't pause
 robots.txt                     noindex (there is no login — see below)
 archive/                       the pre-online originals, for reference. Do not edit.
 ```
@@ -186,6 +186,29 @@ because they look defensive.
    real roster, and the first edit would overwrite good server data with the
    defaults. It retries three times with backoff first, and `store.loadFailed`
    makes any later `set()` throw rather than write.
+
+### Keeping the database awake
+
+Supabase pauses a free-tier project after 7 days without "sufficient activity",
+and does not define the term. A daily read is not enough: the workflow read
+`payroll_config` successfully on 18 consecutive days and Supabase still emailed
+to say the project was scheduled for pausing. The ping therefore **writes** — it
+PATCHes `keepalive.pinged_at` — and runs every 6 hours.
+
+The write goes to its own table for a specific reason: the obvious shortcut,
+writing to `payroll_config`, would bump its `updated_at` every few hours, and
+`replayStash()` decides whether unsaved work is stale by comparing the stash's
+timestamp against exactly that column. A heartbeat there would make the app
+throw away real unsaved work.
+
+The workflow fails loudly if the write fails, which is deliberate — a heartbeat
+that has silently stopped is how the database gets paused without anyone
+noticing. `PGRST205` there means `supabase/schema.sql` hasn't been re-run.
+
+Two failure modes no amount of workflow tuning fixes: GitHub disables scheduled
+workflows in a repo with 60 days of no activity, and the schedule is best-effort
+(which is the other reason it runs four times a day rather than once). If this
+keeps happening, the honest answer is the paid plan, not a cleverer cron.
 
 ### The unsaved-work stash
 

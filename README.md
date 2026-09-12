@@ -19,7 +19,8 @@ living in a database instead of in one browser's storage.
 
 - One static `index.html`, served by **Vercel**. No build step, no server.
 - Data in **Supabase** (Postgres).
-- A **GitHub Actions** cron pings Supabase daily so the free tier doesn't pause.
+- A **GitHub Actions** cron writes to Supabase every 6 hours so the free tier
+  doesn't pause.
 
 The offline double-click-and-open version it grew out of is kept in `archive/`.
 
@@ -136,10 +137,26 @@ git push -u origin main
 ### 7. Start the keep-alive
 
 In the repo on GitHub: **Actions → Supabase keep-alive → Run workflow**. Confirm
-it goes green. After that it runs itself, daily.
+it goes green. After that it runs itself, every 6 hours.
 
-If you skip this, Supabase pauses the project after 7 days of no requests and
-the app stops loading until you un-pause it by hand.
+If you skip this, Supabase pauses the project after 7 days of too little
+activity and the app stops loading until you un-pause it by hand.
+
+The job both reads and **writes** (it bumps a row in the `keepalive` table). A
+daily read on its own is not enough — this project ran one successfully for 18
+consecutive days and Supabase still scheduled it for pausing. If the job starts
+failing with `PGRST205`, the `keepalive` table is missing: re-run
+`supabase/schema.sql`.
+
+Two things this cannot protect you from:
+
+- GitHub disables scheduled workflows in a repository that has seen no activity
+  for 60 days. If you go two months without pushing anything, the keep-alive
+  stops and the pause clock starts.
+- The schedule is best-effort. GitHub delays or skips scheduled runs under load,
+  which is why it runs four times a day rather than once.
+
+The only guaranteed fix is Supabase's paid plan, which does not pause projects.
 
 ---
 
