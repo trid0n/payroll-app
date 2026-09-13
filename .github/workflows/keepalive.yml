@@ -31,8 +31,12 @@ jobs:
           URL="https://grspmjuuqfvjkwlswioj.supabase.co/rest/v1"
           KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdyc3BtanV1cWZ2amt3bHN3aW9qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc2NjUyNTYsImV4cCI6MjEwMzI0MTI1Nn0.19IwDPKIUcvnM4yaEVYg2-l2d5pmTDqYfG7dGlhzx8s"
 
+          # Retries on both requests: run #22 failed on one transient HTTP error
+          # from the read (curl exit 22) while the runs either side succeeded. A
+          # single blip is not a dead heartbeat and shouldn't send a failure
+          # email; four failed attempts spread over about a minute still fail.
           echo "read:"
-          curl -sf "$URL/payroll_config?select=id&limit=1" \
+          curl -sf --retry 3 --retry-all-errors --retry-delay 15 "$URL/payroll_config?select=id&limit=1" \
             -H "apikey: $KEY" -H "Authorization: Bearer $KEY"
           echo
 
@@ -42,7 +46,7 @@ jobs:
           # heartbeat that has silently stopped beating is how the database gets
           # paused without anyone noticing.
           echo "write:"
-          code=$(curl -s -o /tmp/body -w '%{http_code}' -X PATCH \
+          code=$(curl -s --retry 3 --retry-delay 15 -o /tmp/body -w '%{http_code}' -X PATCH \
             "$URL/keepalive?id=eq.main" \
             -H "apikey: $KEY" -H "Authorization: Bearer $KEY" \
             -H "Content-Type: application/json" \
