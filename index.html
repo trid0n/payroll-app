@@ -684,11 +684,16 @@ const DEFAULT_ROSTER = [
   { id: "faith-winfield", name: "Faith Winfield", level: "admin", flatRateOnly: false, kmYTD: 0 },
 ];
 
+// Merged under the saved aliases on every load (saved entries win), so a name
+// added here reaches the live data. Replacing instead would mean a new entry
+// only ever worked on a fresh database: the saved config already has an
+// aliases object, and there is no screen for editing it.
 const DEFAULT_ALIASES = {
   "ethan fowles": "jake-fowles",
   "tristen": "tristan-holland",
   "karen webb": "karren-web",
   "mj butler": "melanie-j-butler",
+  "melanie jane butler": "melanie-j-butler",
   "melanie brandan": "melanie-brandon",
   "jodey wadly": "jody-wadley",
 };
@@ -1144,8 +1149,12 @@ function extractSleepovers(notes) {
    ========================================================================= */
 function matchNameToRoster(name, roster, aliases) {
   const norm = cleanVal(name).toLowerCase().trim();
-  if (aliases[norm]) {
-    const found = roster.find((r) => r.id === aliases[norm]);
+  // Aliases are keyed with spaces for punctuation ("melanie jane butler"), which is
+  // how the Jibble import looks them up. Payroller hyphenates ("Melanie-Jane"), so
+  // the raw lowercased name alone would miss the same entry.
+  const aliasKey = aliases[norm] ? norm : slugify(name).replace(/-/g, " ");
+  if (aliases[aliasKey]) {
+    const found = roster.find((r) => r.id === aliases[aliasKey]);
     if (found) return found;
   }
   const exact = roster.find((r) => r.name.toLowerCase().trim() === norm);
@@ -1727,7 +1736,7 @@ function App() {
           if (cfg.levels) setLevels(cfg.levels);
           if (cfg.levelOrder) setLevelOrder(cfg.levelOrder);
           if (cfg.roster) setRoster(cfg.roster);
-          if (cfg.aliases) setAliases(cfg.aliases);
+          if (cfg.aliases) setAliases({ ...DEFAULT_ALIASES, ...cfg.aliases });
           if (cfg.holidays) setHolidays(cfg.holidays);
           if (cfg.kmSettings) setKmSettings(cfg.kmSettings);
           if (cfg.allowances) setAllowances(cfg.allowances);
@@ -2395,7 +2404,7 @@ function App() {
     if (cfg.levels) setLevels(cfg.levels);
     if (cfg.levelOrder) setLevelOrder(cfg.levelOrder);
     if (cfg.roster) setRoster(cfg.roster);
-    if (cfg.aliases) setAliases(cfg.aliases);
+    if (cfg.aliases) setAliases({ ...DEFAULT_ALIASES, ...cfg.aliases });
     if (cfg.holidays) setHolidays(cfg.holidays);
     if (cfg.kmSettings) setKmSettings(cfg.kmSettings);
     if (cfg.allowances) setAllowances(cfg.allowances);

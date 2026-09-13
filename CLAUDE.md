@@ -371,6 +371,14 @@ against the alias table. That last tier exists because Payroller sometimes
 spells a nickname out in full ("Tristen Holland") where the alias table only has
 the bare nickname from Jibble.
 
+`DEFAULT_ALIASES` is **merged under** the saved aliases on every load, saved
+entries winning. It used to replace them, which meant a new entry added in
+code never reached the live data (the saved config already has an `aliases`
+object, and there is no screen for editing it). Alias keys use spaces for
+punctuation, and the lookup tries the lowercased name then its slugified form,
+so one key covers Jibble's "Melanie J Butler" style and Payroller's hyphenated
+"Melanie-Jane Butler".
+
 ---
 
 ## Key reusable components
