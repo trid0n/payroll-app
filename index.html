@@ -3764,15 +3764,18 @@ function App() {
               })().map((entry) => {
                 if (entry.kind === "gap") {
                   return (
-                    <div key={`gap-${entry.week}`} style={{ border: `1px dashed ${T.warn}66`, borderRadius: 10, background: T.warnSoft, padding: "10px 12px", display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
-                      <AlertTriangle size={15} style={{ color: T.warn, flexShrink: 0 }} />
-                      <div style={{ minWidth: 0, textAlign: "center" }}>
-                        <div style={{ fontWeight: 700, fontSize: 12.5, color: T.warn }}>
-                          {entry.week} to {addDaysISO(entry.week, 6)}
-                        </div>
-                        <div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>
-                          Nothing committed for this week — looks like it was never imported.
-                        </div>
+                    /* The icon rides with the date rather than sitting in its own
+                       flex column. The second line is much longer than the first, so
+                       it sets the block's width — which on a wide screen stranded the
+                       icon against the far left edge, nowhere near the centred text
+                       it belonged to. */
+                    <div key={`gap-${entry.week}`} style={{ border: `1px dashed ${T.warn}66`, borderRadius: 10, background: T.warnSoft, padding: "10px 12px", textAlign: "center" }}>
+                      <div style={{ fontWeight: 700, fontSize: 12.5, color: T.warn, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                        <AlertTriangle size={14} style={{ color: T.warn, flexShrink: 0 }} />
+                        {entry.week} to {addDaysISO(entry.week, 6)}
+                      </div>
+                      <div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>
+                        Nothing committed for this week — looks like it was never imported.
                       </div>
                     </div>
                   );
