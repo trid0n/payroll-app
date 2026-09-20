@@ -535,6 +535,7 @@ const ExternalLink = (p) => <Icon {...p}><path d="M15 3h6v6" /><path d="M10 14 2
 const Landmark = (p) => <Icon {...p}><line x1="3" y1="22" x2="21" y2="22" /><line x1="6" y1="18" x2="6" y2="11" /><line x1="10" y1="18" x2="10" y2="11" /><line x1="14" y1="18" x2="14" y2="11" /><line x1="18" y1="18" x2="18" y2="11" /><polygon points="12 2 21 8 3 8" /></Icon>;
 const Plus = (p) => <Icon {...p}><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></Icon>;
 const Undo2 = (p) => <Icon {...p}><path d="M9 14 4 9l5-5" /><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11" /></Icon>;
+const AlertTriangle = (p) => <Icon {...p}><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></Icon>;
 
 
 /* =========================================================================
@@ -785,6 +786,43 @@ function daysBetweenISO(a, b) {
   if (!ay || !by) return null;
   return Math.round((Date.UTC(by, bm - 1, bd) - Date.UTC(ay, am - 1, ad)) / 86400000);
 }
+// The Monday on or before a date. A sheet's dateFrom is just the earliest day
+// anyone actually worked, so a week where nobody clocked on until Tuesday would
+// otherwise look like a different week from one that started on the Monday.
+// Anchoring to the Monday makes two sheets comparable however they fell.
+function weekStartISO(iso) {
+  if (!iso) return null;
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y) return null;
+  const dow = new Date(y, m - 1, d).getDay();   // 0 = Sunday
+  return addDaysISO(iso, -((dow + 6) % 7));
+}
+
+/* Weeks sitting between two committed sheets with nothing committed for them,
+   so a week that never got imported shows up as a gap rather than as a silent
+   absence nobody notices.
+
+   Only gaps BETWEEN sheets. The current week has no sheet until it is
+   committed, and every week before the first one ever committed has none
+   either — flagging those would mean a permanent warning that means nothing.
+
+   `sheets` in any order; returns each gap as the list of Monday week-starts it
+   covers, oldest first. */
+function missingWeekRuns(sheets) {
+  const starts = [];
+  for (const s of sheets) { const w = weekStartISO(s && s.dateFrom); if (w) starts.push(w); }
+  const unique = Array.from(new Set(starts)).sort();
+  const runs = [];
+  for (let i = 1; i < unique.length; i++) {
+    const apart = Math.round(daysBetweenISO(unique[i - 1], unique[i]) / 7);
+    if (apart <= 1) continue;
+    const weeks = [];
+    for (let w = 1; w < apart; w++) weeks.push(addDaysISO(unique[i - 1], w * 7));
+    runs.push({ after: unique[i - 1], before: unique[i], weeks });
+  }
+  return runs;
+}
+
 // Truncates (never rounds) to 2 decimal places, per how the business wants
 // hours reported — 3.698 stays 3.69, it never bumps to 3.70. The tiny
 // epsilon guards against floating-point artifacts like 3.6899999999.
@@ -3704,7 +3742,41 @@ function App() {
             <p style={{ fontSize: 13, color: T.textDim, marginTop: 10 }}>Nothing committed yet.</p>
           ) : (
             <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-              {committedSheets.slice().sort((a, b) => (b.dateFrom || "").localeCompare(a.dateFrom || "")).map((sheet) => {
+              {(() => {
+                /* Sheets newest-first as before, with a placeholder dropped in
+                   wherever a week between two of them has nothing committed. */
+                const sorted = committedSheets.slice().sort((a, b) => (b.dateFrom || "").localeCompare(a.dateFrom || ""));
+                const gapAfterWeek = {};
+                for (const run of missingWeekRuns(committedSheets)) gapAfterWeek[run.before] = run;
+                const out = [];
+                for (const sheet of sorted) {
+                  out.push({ kind: "sheet", sheet });
+                  // `sorted` is descending, so the gap below this sheet is the one
+                  // whose newer neighbour is this sheet's week.
+                  const run = gapAfterWeek[weekStartISO(sheet.dateFrom)];
+                  if (run) { out.push({ kind: "gap", run }); delete gapAfterWeek[run.before]; }
+                }
+                return out;
+              })().map((entry) => {
+                if (entry.kind === "gap") {
+                  const weeks = entry.run.weeks;
+                  const last = weeks[weeks.length - 1];
+                  return (
+                    <div key={`gap-${entry.run.after}`} style={{ border: `1px dashed ${T.warn}66`, borderRadius: 10, background: T.warnSoft, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10 }}>
+                      <AlertTriangle size={15} style={{ color: T.warn, flexShrink: 0 }} />
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: 12.5, color: T.warn }}>
+                          {weeks[0]} to {addDaysISO(last, 6)}
+                          {weeks.length > 1 && <span style={{ fontWeight: 600 }}> · {weeks.length} weeks</span>}
+                        </div>
+                        <div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>
+                          Nothing committed for {weeks.length === 1 ? "this week" : "these weeks"} — looks like {weeks.length === 1 ? "it was" : "they were"} never imported.
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+                const sheet = entry.sheet;
                 const people = Object.values(sheet.perEmployee).map((p, i) => ({ ...p, id: Object.keys(sheet.perEmployee)[i] }));
                 const totalKm = people.reduce((a, p) => a + (p.weekKm || 0), 0);
                 const open = !!expandedKmSheet[sheet.id];

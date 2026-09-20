@@ -459,6 +459,26 @@ Payroller by hand.
   overnight. See "Overnight stays" above; the note and the times are
   deliberately treated differently, and the counts are deduped, not summed.
 
+### Missing weeks in Km's History
+
+A week with no committed sheet shows as a dashed placeholder in the list rather
+than as a silent absence — a week that never got imported is otherwise
+invisible, because nothing is there to notice.
+
+- **Weeks are anchored to the Monday on or before `dateFrom`** (`weekStartISO`).
+  `dateFrom` is just the earliest day anyone actually worked, so a week where
+  nobody clocked on until Tuesday would otherwise read as a different week from
+  one that started on the Monday. Without the anchoring, ordinary ragged weeks
+  produce false gaps — that is the case to re-test if this is ever changed.
+- **Only gaps *between* committed sheets** (`missingWeekRuns`). The current week
+  has no sheet until it is committed, and neither does anything before the first
+  week ever committed; flagging those would be a permanent warning that means
+  nothing.
+- One row per gap, not per week, so a long break reads as
+  "2026-10-05 to 2026-10-18 · 2 weeks" rather than filling the list.
+- Two sheets inside the same week collapse to one week, so a split import can't
+  invent a gap.
+
 ### Faith's implied hours in the cross-check
 
 Faith Winfield has standing admin hours that are **always entered in Payroller
