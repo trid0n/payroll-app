@@ -2521,6 +2521,14 @@ function App() {
     focusTimers.current.push(setTimeout(() => setFocusPhase("idle"), FOCUS_OUT_MS + FOCUS_IN_MS + 40));
   }, [focusSlots]);
 
+  // Straight to the last slot — the cross-check card, which is where Commit lives
+  // in one-at-a-time. Goes through stepFocus rather than setting the index, so the
+  // jump animates like any other move and can't strand a pending hand-over.
+  const jumpToCommit = useCallback(() => {
+    const delta = focusCount - safeFocusIndex;
+    if (focusSlots && delta > 0) stepFocus(delta);
+  }, [focusSlots, focusCount, safeFocusIndex, stepFocus]);
+
   useEffect(() => {
     if (!focusMode) return;
     const onKey = (ev) => {
@@ -3139,7 +3147,15 @@ function App() {
                 };
                 return (
                   <div>
-                    <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                      {/* Hidden on the cross-check card itself — there is nothing left
+                          to skip past once you are already there. */}
+                      {!isCrossCheck && (
+                        <button className="sb-focuschip" style={focusChip} onClick={jumpToCommit}>
+                          Skip to commit
+                          <ChevronDown size={13} style={{ transform: "rotate(-90deg)" }} />
+                        </button>
+                      )}
                       <button className="sb-focuschip" style={focusChip} onClick={() => setFocusMode(false)}>Show all</button>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, maxWidth: 480, margin: "-4px auto 0" }}>
@@ -3741,7 +3757,6 @@ function App() {
               <span style={{ color: T.good }}>✓ Sheet committed — km's added to each person's YTD, and saved online.</span>
             </div>
           )}
-          <p style={{ fontSize: 13, color: T.textDim, marginTop: 6 }}>Every committed week's km's, for cross-checking later. Click a period to see the per-person breakdown — figures are editable right here if you spot a mistake, and the correction rolls straight into km YTD.</p>
           {committedSheets.length > 0 && (
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
               <button className="sb-btn-hover" style={{ ...S.btnGhost, color: confirmDeleteAllSheets ? T.warn : S.btnGhost.color }} onClick={() => {
