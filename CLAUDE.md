@@ -459,6 +459,32 @@ Payroller by hand.
   overnight. See "Overnight stays" above; the note and the times are
   deliberately treated differently, and the counts are deduped, not summed.
 
+### Faith's implied hours in the cross-check
+
+Faith Winfield has standing admin hours that are **always entered in Payroller
+and never clocked in Jibble**. Payroller reading exactly `FAITH_IMPLIED_HOURS`
+(2.5) higher for her, with nothing else out of place, is therefore the expected
+result and counts as a clean match.
+
+- **Exactly 2.5h.** A gap of any other size is not the standing hours and is far
+  more likely to be a real mistake, so it still flags. That is the whole reason
+  this is a fixed figure rather than "ignore any Faith difference" — don't
+  loosen it to a tolerance without asking.
+- **Two shapes, both handled.** She worked nothing else that week, so Payroller
+  has a row and Jibble has none; or she also worked real shifts, so there is a
+  Jibble row and Payroller simply reads 2.5h higher. `rowMatches` takes a
+  `weekdayAllowance` argument for the second, applied only to her.
+- **It does not ask.** There used to be a "Is this the usual case for her?"
+  prompt with a yes/no. The answer was always yes, so it's gone.
+- **It is never silent, though.** The match banner says Payroller is 2.5h ahead
+  on Faith and why, the unmatched-name chip reads "— expected", and the two
+  adjusted cells show `6.00 / 8.50+2.5`. A check that passes on an assumption
+  has to show the assumption, or a week where it's wrong looks identical to a
+  week where it's right.
+- Matching is on the name containing "faith" (`isFaithName`), not a roster id,
+  because the Payroller side of the comparison may not have matched to a roster
+  entry at all.
+
 ### Name matching (`matchNameToRoster`)
 
 In order: known alias lookup → exact name → slugified match → **first word only**

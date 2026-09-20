@@ -1238,6 +1238,17 @@ function matchNameToRoster(name, roster, aliases) {
   return null;
 }
 
+/* Faith Winfield's standing admin hours are implied rather than clocked: they
+   are always entered in Payroller and never appear in Jibble. So Payroller
+   reading exactly this much higher for her, with nothing else out of place, is
+   the expected result and not a discrepancy worth flagging.
+
+   EXACTLY this much. A gap of some other size is not the standing hours and is
+   much more likely to be a real mistake, so it still flags — which is the whole
+   reason this is a fixed figure rather than "ignore any Faith difference". */
+const FAITH_IMPLIED_HOURS = 2.5;
+function isFaithName(name) { return /faith/i.test(name || ""); }
+
 function parsePayrollerText(text) {
   const blocks = text.split(/(?=Name:\s*[A-Za-z])/).filter((b) => /Period Starting/.test(b));
   return blocks.map((block) => {
@@ -1604,7 +1615,6 @@ function App() {
   const [expandedShiftDetail, setExpandedShiftDetail] = useState({});
   const [payrollerPasteText, setPayrollerPasteText] = useState("");
   const [payrollerComparison, setPayrollerComparison] = useState(null);
-  const [faithExceptionConfirmed, setFaithExceptionConfirmed] = useState(null); // null = undecided, true = confirmed normal, false = dismissed as a real issue
 
   const closeEnough = (a, b, tol = 0.02) => Math.abs((a || 0) - (b || 0)) <= tol;
 
@@ -1620,28 +1630,44 @@ function App() {
     const payrollerGrandTotal = parsed.reduce((a, p) => a + p.total, 0);
     const unmatchedInPayroller = rows.filter((r) => !r.jibble);
     const matchedRows = rows.filter((r) => r.jibble);
-    const rowMatches = (r) => {
+    // `weekdayAllowance` is how much higher Payroller is allowed to be on the
+    // ordinary-hours line and the total without that counting as a mismatch.
+    // Only ever non-zero for Faith — see FAITH_IMPLIED_HOURS.
+    const rowMatches = (r, weekdayAllowance = 0) => {
       const j = r.jibble, p = r.payroller;
       const jOther = (j.breakInfo.count1 || 0) + (j.breakInfo.count2 || 0) + (j.sleepovers || 0);
-      return closeEnough(j.buckets.weekday, p.weekday) && closeEnough(j.buckets.afternoon, p.afternoon) &&
+      return closeEnough(j.buckets.weekday + weekdayAllowance, p.weekday) && closeEnough(j.buckets.afternoon, p.afternoon) &&
         closeEnough(j.buckets.night, p.night) && closeEnough(j.buckets.saturday, p.saturday) &&
         closeEnough(j.buckets.sunday, p.sunday) && closeEnough(j.buckets.publicHoliday, p.publicHoliday) &&
         closeEnough(j.buckets.otTier1, p.otTier1) && closeEnough(j.buckets.otTier2, p.otTier2) &&
-        closeEnough(j.totalHours, p.total) && closeEnough(Math.round(j.weekKm), p.km, 0.5) &&
+        closeEnough(j.totalHours + weekdayAllowance, p.total) && closeEnough(Math.round(j.weekKm), p.km, 0.5) &&
         closeEnough(jOther, p.otherAllowanceUnits, 0.5);
     };
-    const allMatch = matchedRows.length > 0 && matchedRows.every(rowMatches) && missingFromPayroller.length === 0 && unmatchedInPayroller.length === 0;
 
-    // Faith Winfield's hours are known to regularly not make it into Jibble
-    // even though she genuinely worked — check if she's the *only* thing
-    // stopping this from being a clean match, so we can ask about it
-    // specifically rather than just flagging a plain mismatch.
-    const faithRow = unmatchedInPayroller.find((r) => /faith/i.test(r.payroller.name)) || null;
-    const otherUnmatched = unmatchedInPayroller.filter((r) => r !== faithRow);
-    const isFaithOnlyIssue = !!faithRow && matchedRows.every(rowMatches) && missingFromPayroller.length === 0 && otherUnmatched.length === 0;
+    /* Faith's standing hours turn up in one of two shapes, and both are normal:
+       she worked nothing else that week, so Payroller has her and Jibble has no
+       row at all; or she also worked real shifts, so there IS a Jibble row and
+       Payroller simply reads 2.5h higher. The second used to flag as a plain
+       mismatch. Neither asks any more — they just count as correct, with the
+       banner saying so, since the answer was always "yes, that's normal". */
+    const isFaithRow = (r) => isFaithName(r.payroller.name) || isFaithName(r.matchedName);
+    const faithAdjusted = matchedRows.filter((r) => !rowMatches(r) && isFaithRow(r) && rowMatches(r, FAITH_IMPLIED_HOURS));
+    const faithAdjustedIds = new Set(faithAdjusted.map((r) => r.jibble.id));
+    const rowOk = (r) => rowMatches(r) || (faithAdjustedIds.has(r.jibble.id));
 
-    setPayrollerComparison({ rows, missingFromPayroller, payrollerGrandTotal, allMatch, faithRow, isFaithOnlyIssue });
-    setFaithExceptionConfirmed(null);
+    const faithRow = unmatchedInPayroller.find((r) => isFaithName(r.payroller.name)) || null;
+    // Only the standing amount is waved through; any other figure is a real gap.
+    const faithAbsentAssumed = !!faithRow && closeEnough(faithRow.payroller.total, FAITH_IMPLIED_HOURS);
+    const otherUnmatched = unmatchedInPayroller.filter((r) => !(r === faithRow && faithAbsentAssumed));
+
+    const allMatch = matchedRows.length > 0 && matchedRows.every(rowOk) &&
+      missingFromPayroller.length === 0 && otherUnmatched.length === 0;
+    const faithAssumed = allMatch && (faithAbsentAssumed || faithAdjusted.length > 0);
+
+    setPayrollerComparison({
+      rows, missingFromPayroller, payrollerGrandTotal, allMatch,
+      faithAssumed, faithAdjustedIds, faithAbsentAssumed,
+    });
   };
 
   const [importMsg, setImportMsg] = useState("");
@@ -3518,34 +3544,20 @@ function App() {
 
                 {payrollerComparison && (
                   <div style={{ marginTop: 16 }}>
-                    {(payrollerComparison.allMatch || (payrollerComparison.isFaithOnlyIssue && faithExceptionConfirmed === true)) && (
+                    {payrollerComparison.allMatch && (
                       <div className="sb-match-banner" style={{ marginBottom: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 12, background: T.accentSoft, border: `1px solid ${T.good}66`, borderRadius: 10, padding: "12px 16px" }}>
                         <CheckCircle2 size={24} style={{ color: T.good, flexShrink: 0 }} />
                         <div>
                           <div style={{ fontSize: 14, fontWeight: 700, color: T.good }}>Everything matches ✓</div>
                           <div style={{ fontSize: 12, color: T.textDim, marginTop: 1 }}>
-                            {payrollerComparison.isFaithOnlyIssue && faithExceptionConfirmed === true
-                              ? "Every hour, rate, km and allowance lines up — Faith's usual missing-from-Jibble hours are the only difference, and that's expected."
+                            {/* Named rather than waved through silently: the check passed on an
+                                assumption, and a week where that assumption is wrong should still
+                                be something you can spot. */}
+                            {payrollerComparison.faithAssumed
+                              ? `Every hour, rate, km and allowance lines up — Payroller is ${FAITH_IMPLIED_HOURS}h ahead on Faith's ordinary hours, which is her usual standing time and expected.`
                               : "Every hour, rate, km and allowance lines up between Jibble and Payroller — nothing to double-check this week."}
                           </div>
                         </div>
-                      </div>
-                    )}
-                    {payrollerComparison.isFaithOnlyIssue && faithExceptionConfirmed === null && (
-                      <div style={{ marginBottom: 14, background: T.accentSoft, border: `1px solid ${T.cardBorder}`, borderRadius: 10, padding: "12px 16px" }}>
-                        <div style={{ fontSize: 13.5, fontWeight: 700, color: T.text }}>
-                          Everything else matches — the only gap is {payrollerComparison.faithRow.payroller.total.toFixed(2)}h for Faith Winfield in Payroller with nothing in Jibble.
-                        </div>
-                        <div style={{ fontSize: 12, color: T.textDim, marginTop: 4 }}>Is this the usual case where her hours don't make it into Jibble?</div>
-                        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                          <button className="sb-btn-hover" style={S.btnGhost} onClick={() => setFaithExceptionConfirmed(true)}>Yes, that's normal for her</button>
-                          <button className="sb-btn-hover" style={S.btnGhost} onClick={() => setFaithExceptionConfirmed(false)}>No, look into it</button>
-                        </div>
-                      </div>
-                    )}
-                    {payrollerComparison.isFaithOnlyIssue && faithExceptionConfirmed === false && (
-                      <div style={{ marginBottom: 14, background: T.warnSoft, border: `1px solid ${T.warn}55`, borderRadius: 10, padding: "10px 14px", fontSize: 12.5, color: T.warn, fontWeight: 600 }}>
-                        Noted — worth chasing up Faith's {payrollerComparison.faithRow.payroller.total.toFixed(2)}h with Jibble or whoever entered it in Payroller.
                       </div>
                     )}
                     <div style={{ display: "flex", gap: 24, flexWrap: "wrap", marginBottom: 12, justifyContent: "center" }}>
@@ -3573,9 +3585,18 @@ function App() {
                       <div style={{ marginBottom: 10, background: T.missingJibbleSoft, border: `1px solid ${T.cardBorder}`, borderRadius: 10, padding: "10px 12px" }}>
                         <div style={{ fontSize: 11.5, fontWeight: 700, color: T.missingJibble, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 5 }}>In the Payroller text, not matched to anyone in Jibble this week</div>
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                          {payrollerComparison.rows.filter((r) => !r.jibble).map((r, i) => (
-                            <span key={i} style={{ fontSize: 10.5, background: T.missingJibbleSoft, color: T.missingJibble, border: `1px solid ${T.missingJibble}55`, borderRadius: 999, padding: "3px 8px", fontWeight: 600 }}>{r.payroller.name}</span>
-                          ))}
+                          {payrollerComparison.rows.filter((r) => !r.jibble).map((r, i) => {
+                            // Still listed, because it IS a real difference between the two
+                            // systems — just not one that makes the week wrong.
+                            const expected = payrollerComparison.faithAbsentAssumed && isFaithName(r.payroller.name);
+                            return (
+                              <span key={i} style={expected
+                                ? { fontSize: 10.5, background: T.accentSoft, color: T.textDim, border: `1px solid ${T.cardBorder}`, borderRadius: 999, padding: "3px 8px", fontWeight: 600 }
+                                : { fontSize: 10.5, background: T.missingJibbleSoft, color: T.missingJibble, border: `1px solid ${T.missingJibble}55`, borderRadius: 999, padding: "3px 8px", fontWeight: 600 }}>
+                                {r.payroller.name}{expected ? " — expected" : ""}
+                              </span>
+                            );
+                          })}
                         </div>
                       </div>
                     )}
@@ -3592,11 +3613,17 @@ function App() {
                         <tbody>
                           {payrollerComparison.rows.filter((r) => r.jibble).map((r) => {
                             const j = r.jibble, p = r.payroller;
-                            const cell = (jv, pv, decimals = 2) => {
-                              const ok = closeEnough(jv, pv, decimals === 0 ? 0.5 : 0.02);
+                            /* The ordinary-hours and total cells are the two Faith's standing
+                               time lands in. Without this they'd read red under a banner saying
+                               everything matches, which is the kind of contradiction that makes
+                               you stop trusting the check. */
+                            const allowance = payrollerComparison.faithAdjustedIds.has(j.id) ? FAITH_IMPLIED_HOURS : 0;
+                            const cell = (jv, pv, decimals = 2, allow = 0) => {
+                              const ok = closeEnough(jv + allow, pv, decimals === 0 ? 0.5 : 0.02);
                               return (
                                 <td style={{ ...S.tdStyle, color: ok ? T.text : T.warn, fontWeight: ok ? 400 : 700 }}>
                                   {jv.toFixed(decimals)} / {pv.toFixed(decimals)}
+                                  {ok && allow > 0 && <span style={{ color: T.textFaint, fontSize: 10, marginLeft: 3 }}>+{allow}</span>}
                                 </td>
                               );
                             };
@@ -3604,7 +3631,7 @@ function App() {
                             return (
                               <tr key={j.id}>
                                 <td style={{ ...S.tdStyle, fontWeight: 600 }}>{j.name}</td>
-                                {cell(j.buckets.weekday, p.weekday)}
+                                {cell(j.buckets.weekday, p.weekday, 2, allowance)}
                                 {cell(j.buckets.afternoon, p.afternoon)}
                                 {cell(j.buckets.night, p.night)}
                                 {cell(j.buckets.saturday, p.saturday)}
@@ -3612,7 +3639,7 @@ function App() {
                                 {cell(j.buckets.publicHoliday, p.publicHoliday)}
                                 {cell(j.buckets.otTier1, p.otTier1)}
                                 {cell(j.buckets.otTier2, p.otTier2)}
-                                {cell(j.totalHours, p.total)}
+                                {cell(j.totalHours, p.total, 2, allowance)}
                                 {cell(Math.round(j.weekKm), p.km, 0)}
                                 {cell(jOther, p.otherAllowanceUnits, 0)}
                               </tr>
