@@ -3764,9 +3764,9 @@ function App() {
               })().map((entry) => {
                 if (entry.kind === "gap") {
                   return (
-                    <div key={`gap-${entry.week}`} style={{ border: `1px dashed ${T.warn}66`, borderRadius: 10, background: T.warnSoft, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10 }}>
+                    <div key={`gap-${entry.week}`} style={{ border: `1px dashed ${T.warn}66`, borderRadius: 10, background: T.warnSoft, padding: "10px 12px", display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
                       <AlertTriangle size={15} style={{ color: T.warn, flexShrink: 0 }} />
-                      <div style={{ minWidth: 0 }}>
+                      <div style={{ minWidth: 0, textAlign: "center" }}>
                         <div style={{ fontWeight: 700, fontSize: 12.5, color: T.warn }}>
                           {entry.week} to {addDaysISO(entry.week, 6)}
                         </div>
