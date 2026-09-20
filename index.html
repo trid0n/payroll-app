@@ -957,6 +957,19 @@ function formatDateSmart(dateISO, dayName) {
   return `${shortDay} ${d} ${shortMonth}`;
 }
 
+// "Sep 5 - Sep 11", for the week rows in Km's History. No year: the list runs in
+// date order, so it only ever repeated itself down the column.
+function formatWeekRange(fromISO, toISO) {
+  const one = (iso) => {
+    if (!iso) return "—";
+    const [, m, d] = iso.split("-").map(Number);
+    const mon = MONTH_NAMES[m - 1] ? MONTH_NAMES[m - 1].slice(0, 3) : "";
+    return `${mon} ${d}`;
+  };
+  if (!fromISO && !toISO) return "—";
+  return `${one(fromISO)} - ${one(toISO)}`;
+}
+
 /* =========================================================================
    CSV PARSING
    ========================================================================= */
@@ -3772,7 +3785,7 @@ function App() {
                     <div key={`gap-${entry.week}`} style={{ border: `1px dashed ${T.warn}66`, borderRadius: 10, background: T.warnSoft, padding: "10px 12px", textAlign: "center" }}>
                       <div style={{ fontWeight: 700, fontSize: 12.5, color: T.warn, display: "inline-flex", alignItems: "center", gap: 6 }}>
                         <AlertTriangle size={14} style={{ color: T.warn, flexShrink: 0 }} />
-                        {entry.week} to {addDaysISO(entry.week, 6)}
+                        {formatWeekRange(entry.week, addDaysISO(entry.week, 6))}
                       </div>
                       <div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>
                         Nothing committed for this week — looks like it was never imported.
@@ -3790,7 +3803,7 @@ function App() {
                       <button onClick={() => setExpandedKmSheet((prev) => ({ ...prev, [sheet.id]: !prev[sheet.id] }))}
                         style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
                         <ChevronDown size={15} style={{ transform: open ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s ease", color: T.textDim, flexShrink: 0 }} />
-                        <span style={{ fontWeight: 700, fontSize: 12.5, color: T.text }}>{sheet.dateFrom} to {sheet.dateTo}</span>
+                        <span style={{ fontWeight: 700, fontSize: 12.5, color: T.text }}>{formatWeekRange(sheet.dateFrom, sheet.dateTo)}</span>
                         <span style={{ fontSize: 11, color: T.textFaint }}>{people.length} staff</span>
                         <span style={{ fontSize: 13, fontWeight: 700, color: T.accent, marginLeft: "auto", marginRight: 8 }}>{totalKm.toLocaleString()} km</span>
                       </button>
