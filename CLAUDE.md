@@ -309,6 +309,56 @@ small hours at Monday's night rate rather than at Sunday rate. That reduces pay
 for that portion. It was chosen deliberately over "highest of the starting day
 too", with the trade-off spelled out.
 
+**All of the above is overridden on an overnight stay** — see the next section.
+
+### Overnight stays
+
+When someone stays the night, the **$60.02 sleepover allowance covers the night
+instead of an hourly rate**. So the shift is **cut off at midnight and picks
+back up at 8am** on the following day's rate, and the hours in between are not
+worked hours at all. `splitSegmentByWindow` implements this by *dropping* the
+midnight–8am window rather than re-typing it, so those hours leave the pay run
+entirely.
+
+That window is the `night` bucket, which is why this matters so much: on an
+overnight, up to eight hours of night rate are replaced by one $60.02
+allowance. Getting the classification wrong is a several-hundred-dollar error
+in whichever direction it goes.
+
+- **Detection is deliberately split.** A note saying "sleepover" is trusted on
+  its own (`isOvernightByNote`, which also requires the segment to actually
+  cross midnight). Times that merely *look* like one — crossed midnight and
+  still running at 3am, `OVERNIGHT_MIN_END_MINUTES` — raise a **question in the
+  import gate** instead, alongside the km questions and holding back the week's
+  figures the same way. Times alone cannot distinguish a sleepover from a
+  genuine *active* night shift, and those pay completely differently.
+- **3am is the business's own line**, not an award rule. Late enough that an
+  ordinary late finish isn't swept up, early enough not to miss a night that
+  ended before the usual morning.
+- **One night is one allowance.** `sleepoverFor` takes `Math.max` of the
+  note-derived count and the time-derived one per segment, never their sum, so a
+  segment that matches both isn't billed twice.
+- **Overtime still sees it as one continuous shift.** The paid hours arrive in
+  two blocks either side of an unpaid night, but every part carries the
+  segment's *start* date, so both count against the same day's 10 hours rather
+  than being split across two days. The unpaid night never reaches
+  `computeWeekBuckets`, so sleeping hours can't push anyone into overtime. A
+  4pm→10am overnight is 8h + 2h = 10h and no OT; the same shift answered "not an
+  overnight" is 18h and 8h of OT.
+- **Hours are scaled before the window is dropped**, so a break Jibble already
+  deducted spreads across the paid blocks in proportion instead of landing
+  entirely on one.
+- **`flatRateOnly` people go through the split too**, purely to lose the unpaid
+  night. Their pay still ignores which window an hour fell in, but paying the
+  night hourly *and* paying the allowance would bill the same night twice. The
+  windows sum to the recorded hours on every ordinary shift, so this changes
+  nothing except on an overnight.
+- **Edge case worth knowing:** a shift that qualifies but finishes *before* 8am
+  loses everything after midnight. An 8pm→5am answered "yes" pays 4h afternoon
+  plus the allowance, and the five hours from midnight to 5am are gone. That
+  falls straight out of the rule as specified, and the gate is what stops it
+  happening to a shift that was genuinely worked awake.
+
 ### Overtime (`computeWeekBuckets`) — the trickiest part
 
 Two **independent** checks; whichever produces the bigger number governs (they
@@ -346,7 +396,7 @@ Payroller by hand.
   trusted — a stray number is more often a golf score than a missed km figure.
 
   Those candidates are asked **as a gate straight after the import**: while any
-  are unanswered, `kmReviewOpen` holds back the whole week's figures and shows
+  are unanswered, `reviewOpen` holds back the whole week's figures and shows
   the questions instead. They used to be asked inline, one prompt buried in each
   person's km cell, which meant hunting the table for them while reading km
   totals that were still going to change. Answering every question is the only
@@ -362,7 +412,9 @@ Payroller by hand.
 - **Breaks**: `"N break(s) @ $X"` or `"N break(s) at $X"` (both separators occur
   in practice), matched against the two configured break-allowance amounts.
 - **Sleepovers**: notes containing "sleepover", "slept over", or "overnight
-  stay".
+  stay" — or, with confirmation, a segment whose clock times read as an
+  overnight. See "Overnight stays" above; the note and the times are
+  deliberately treated differently, and the counts are deduped, not summed.
 
 ### Name matching (`matchNameToRoster`)
 

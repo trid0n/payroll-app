@@ -1142,6 +1142,41 @@ function extractSleepovers(notes) {
   return { count: quotes.length, quotes };
 }
 
+/* overnight stays ---------------------------------------------------------
+   A shift that ran past midnight and was still running well into the small
+   hours is an overnight stay: the sleepover allowance covers the night, so the
+   hours between midnight and 8am aren't worked hours at all. The shift is cut
+   off at midnight and picks back up at 8am on the following day's rate.
+
+   3am is the business's own line — late enough that a genuine late finish
+   isn't swept up, early enough that it doesn't miss a night someone left
+   before the usual morning.
+
+   Times alone cannot tell a sleepover from a genuine ACTIVE night shift, and
+   the two pay very differently: misreading one swaps up to eight hours of
+   night rate for a single $60.02 allowance. So a note saying "sleepover" is
+   trusted on its own, and times that merely look like one are asked about
+   instead — same shape as the km candidates above, and for the same reason. */
+const OVERNIGHT_MIN_END_MINUTES = 1620; // 3am, measured from the start day's midnight
+const OVERNIGHT_RESUME_MINUTES = 1920;  // 8am the following day
+
+// Minutes from the start day's midnight to the clock-out, so a segment that ran
+// past midnight reads as 1440+ rather than wrapping back around to a small number.
+function segmentEndMinutes(shift) {
+  if (shift.firstInMin == null || shift.lastOutMin == null) return null;
+  return shift.lastOutMin <= shift.firstInMin ? shift.lastOutMin + 1440 : shift.lastOutMin;
+}
+
+function isOvernightByNote(shift) {
+  const end = segmentEndMinutes(shift);
+  return end != null && end > 1440 && extractSleepovers(shift.notes || []).count > 0;
+}
+
+function isOvernightByTime(shift) {
+  const end = segmentEndMinutes(shift);
+  return end != null && end >= OVERNIGHT_MIN_END_MINUTES;
+}
+
 /* =========================================================================
    PAYROLLER CROSS-CHECK — parses pasted text from a Payroller pay-run
    export (one or more concatenated payslips) so it can be compared against
@@ -1242,9 +1277,18 @@ function baseDayType(shift, holidaySet) {
 // `rates` is the employee's level. Without it the comparison can't be made and
 // the small hours fall back to `night`, which is the pre-existing behaviour.
 //
-// Hours are scaled against the segment's real recorded duration so the parts
-// always add back up to exactly the original total.
-function splitSegmentByWindow(shift, holidaySet, rates) {
+// `isOvernight` overrides all of that for the small hours: on an overnight stay
+// the shift is cut off at midnight and picks back up at 8am, because the
+// sleepover allowance covers the night instead of an hourly rate. The midnight
+// window is dropped rather than re-typed, so those hours leave the pay run
+// entirely — they are not worked hours.
+//
+// Hours are scaled against the segment's real recorded duration, so the parts
+// add back up to exactly the original total — or, on an overnight, to the
+// original total less the unpaid night. Scaling before the window is dropped is
+// what makes a break Jibble already deducted spread across the paid blocks in
+// proportion rather than landing entirely on one of them.
+function splitSegmentByWindow(shift, holidaySet, rates, isOvernight) {
   const baseType = baseDayType(shift, holidaySet);
   if (shift.firstInMin == null || shift.lastOutMin == null || shift.hours <= 0) {
     return [{ dayType: baseType, hours: shift.hours, dateISO: shift.dateISO }];
@@ -1268,17 +1312,18 @@ function splitSegmentByWindow(shift, holidaySet, rates) {
   const smallHoursType =
     nextType === "weekday" || !rates ? "night" : rateOf(nextType) > rateOf("night") ? nextType : "night";
 
+  const smallHours = isOvernight ? [] : [{ from: 1440, to: OVERNIGHT_RESUME_MINUTES, type: smallHoursType }];
   const windows = baseType === "weekday"
     ? [
         { from: 0, to: 1200, type: baseType },
         { from: 1200, to: 1440, type: "afternoon" },
-        { from: 1440, to: 1920, type: smallHoursType },
-        { from: 1920, to: 2880, type: nextType },
+        ...smallHours,
+        { from: OVERNIGHT_RESUME_MINUTES, to: 2880, type: nextType },
       ]
     : [
         { from: 0, to: 1440, type: baseType },
-        { from: 1440, to: 1920, type: smallHoursType },
-        { from: 1920, to: 2880, type: nextType },
+        ...smallHours,
+        { from: OVERNIGHT_RESUME_MINUTES, to: 2880, type: nextType },
       ];
 
   const parts = [];
@@ -1303,9 +1348,16 @@ function splitSegmentByWindow(shift, holidaySet, rates) {
 // own excess comes out of that day's own hours (night, then afternoon, then
 // weekday) — matching how a single evening-finishing long day behaves on
 // an actual payslip.
-function computeWeekBuckets(shiftsForWeek, holidaySet, { skipOvertime, rates }) {
+//
+// An overnight stay stays ONE shift for the daily check even though its paid
+// hours arrive in two blocks either side of an unpaid night: every part carries
+// the segment's START date, so the before-midnight and after-8am blocks are
+// counted against the same day's 10 hours rather than being split across two.
+// The unpaid night itself never reaches here, so sleeping hours can't push
+// anyone into overtime.
+function computeWeekBuckets(shiftsForWeek, holidaySet, { skipOvertime, rates, isOvernight }) {
   const subparts = [];
-  for (const s of shiftsForWeek) subparts.push(...splitSegmentByWindow(s, holidaySet, rates));
+  for (const s of shiftsForWeek) subparts.push(...splitSegmentByWindow(s, holidaySet, rates, isOvernight ? isOvernight(s) : false));
 
   const buckets = { weekday: 0, afternoon: 0, night: 0, saturday: 0, sunday: 0, publicHoliday: 0 };
   if (skipOvertime) {
@@ -1680,6 +1732,7 @@ function App() {
   const [dragOverRosterId, setDragOverRosterId] = useState(null);
   const [dragOverRosterPos, setDragOverRosterPos] = useState(null);
   const [approvedKmCandidates, setApprovedKmCandidates] = useState({});
+  const [approvedOvernights, setApprovedOvernights] = useState({});
   const [expandedKmSheet, setExpandedKmSheet] = useState({});
 
   const [storageReady, setStorageReady] = useState(false);
@@ -1821,8 +1874,9 @@ function App() {
       setShifts(parsed);
       setCsvFormat(format);
       setParseOk(true);
-      // A fresh week gets a fresh set of km questions, asked before anything else.
+      // A fresh week gets a fresh set of import questions, asked before anything else.
       setApprovedKmCandidates({});
+      setApprovedOvernights({});
       // Start the run at the first person. Without this, importing straight after a
       // commit would open on the cross-check card, since that is where the previous
       // week was left.
@@ -1854,7 +1908,7 @@ function App() {
 
   const resetImport = () => {
     setShifts([]); setCsvFormat(null); setFileName(""); setParseMsg(""); setParseOk(true);
-    setMapping({}); setWeeklyKmOverride({}); setBreakOverride({}); setSleepoverOverride({}); setApprovedKmCandidates({}); setHourOverride({});
+    setMapping({}); setWeeklyKmOverride({}); setBreakOverride({}); setSleepoverOverride({}); setApprovedKmCandidates({}); setApprovedOvernights({}); setHourOverride({});
   };
 
   /* ---- config editing ---- */
@@ -2097,10 +2151,35 @@ function App() {
     return { count1, count2, count: count1 + count2, amount };
   };
 
+  /* Which of this person's segments are overnight stays, and which only look
+     like one. A note saying "sleepover" settles it on its own; times that match
+     the rule but carry no such note become a question, because the alternative
+     reading — a genuine active night shift — pays by the hour instead. */
+  const overnightInfoFor = (rid) => {
+    const rShifts = shiftsByRoster[rid] || [];
+    const ids = new Map();
+    const candidates = [];
+    rShifts.forEach((s, idx) => {
+      const id = `${rid}::${s.dateISO || idx}::${s.firstInMin}`;
+      ids.set(s, id);
+      if (isOvernightByTime(s) && !isOvernightByNote(s)) candidates.push({ id, shift: s });
+    });
+    const isOvernight = (s) => isOvernightByNote(s) || approvedOvernights[ids.get(s)] === "approved";
+    return { isOvernight, candidates };
+  };
+
   const sleepoverFor = (rid) => {
     const rShifts = shiftsByRoster[rid] || [];
+    const { isOvernight } = overnightInfoFor(rid);
     let autoCount = 0; const quotes = [];
-    for (const s of rShifts) { const r = extractSleepovers(s.notes || []); autoCount += r.count; quotes.push(...r.quotes); }
+    for (const s of rShifts) {
+      const r = extractSleepovers(s.notes || []);
+      quotes.push(...r.quotes);
+      // One night is one allowance. A segment that reads as an overnight from its
+      // times AND says "sleepover" in the note is still a single night, so these
+      // are the larger of the two counts, never their sum.
+      autoCount += Math.max(r.count, isOvernight(s) ? 1 : 0);
+    }
     const override = sleepoverOverride[rid];
     const count = override !== undefined && override !== "" ? parseInt(override, 10) || 0 : autoCount;
     return { count, autoCount, quotes };
@@ -2126,9 +2205,17 @@ function App() {
       const rShifts = shiftsByRoster[person.id] || [];
       const level = levels[person.level] || levels.l21;
       const skipOvertime = level.flat || person.flatRateOnly;
+      const { isOvernight } = overnightInfoFor(person.id);
       let rawBuckets;
-      if (person.flatRateOnly) { const totalHours = rShifts.reduce((a, s) => a + s.hours, 0); rawBuckets = { weekday: totalHours, afternoon: 0, night: 0, saturday: 0, sunday: 0, publicHoliday: 0, otTier1: 0, otTier2: 0 }; }
-      else rawBuckets = computeWeekBuckets(rShifts, holidaySet, { skipOvertime, rates: level });
+      if (person.flatRateOnly) {
+        /* A flat rate ignores which window an hour fell in, but not an unpaid
+           night: the allowance covers that for everyone, so paying it here as
+           well would bill the same night twice. The windows sum to the recorded
+           hours for every ordinary shift, so this only differs on an overnight. */
+        const totalHours = rShifts.reduce((a, s) => a + splitSegmentByWindow(s, holidaySet, level, isOvernight(s)).reduce((b, p) => b + p.hours, 0), 0);
+        rawBuckets = { weekday: totalHours, afternoon: 0, night: 0, saturday: 0, sunday: 0, publicHoliday: 0, otTier1: 0, otTier2: 0 };
+      }
+      else rawBuckets = computeWeekBuckets(rShifts, holidaySet, { skipOvertime, rates: level, isOvernight });
       const buckets = {};
       for (const k of Object.keys(rawBuckets)) buckets[k] = truncate2(rawBuckets[k]);
       const hOv = hourOverride[person.id];
@@ -2155,11 +2242,11 @@ function App() {
       return {
         id: person.id, name: person.name, level: person.level, levelLabel: level.label, flatRateOnly: person.flatRateOnly,
         buckets, pay, totalHours: truncate2(totalHours), totalPay, weekKm, kmInfo, kmPay: kmInfo.pay,
-        breakInfo, sleepInfo, sleepovers: sleepInfo.count, sleepoverPay, allowancePay,
+        breakInfo, sleepInfo, sleepovers: sleepInfo.count, sleepoverPay, allowancePay, isOvernight,
         grandTotal: totalPay + kmInfo.pay + allowancePay, shifts: rShifts, hasShifts: rShifts.length > 0,
       };
     });
-  }, [roster, shiftsByRoster, holidaySet, levels, weeklyKmOverride, breakOverride, sleepoverOverride, kmSettings, allowances, approvedKmCandidates, hourOverride]);
+  }, [roster, shiftsByRoster, holidaySet, levels, weeklyKmOverride, breakOverride, sleepoverOverride, kmSettings, allowances, approvedKmCandidates, approvedOvernights, hourOverride]);
 
   const activeEmployees = perEmployee.filter((e) => e.hasShifts);
 
@@ -2233,7 +2320,20 @@ function App() {
           .map((c) => ({ ...c, personName: e.name }))
       : []
   );
+  /* Same gate, second kind of question: a segment whose times read as an
+     overnight stay but whose note never says so. It has to be answered for the
+     same reason the km ones do — the week's hours depend on it, and an
+     overnight moves far more money than a stray km figure. */
+  const pendingOvernightQuestions = perEmployee.flatMap((e) =>
+    e.hasShifts
+      ? overnightInfoFor(e.id).candidates
+          .filter((c) => !approvedOvernights[c.id])
+          .map((c) => ({ ...c, personName: e.name }))
+      : []
+  );
   const kmReviewOpen = shifts.length > 0 && pendingKmQuestions.length > 0;
+  const overnightReviewOpen = shifts.length > 0 && pendingOvernightQuestions.length > 0;
+  const reviewOpen = kmReviewOpen || overnightReviewOpen;
 
   const focusChip = {
     all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6,
@@ -2783,8 +2883,51 @@ function App() {
           </>
           )}
 
-          {kmReviewOpen && (
+          {reviewOpen && (
             <div style={{ marginTop: 22, paddingTop: 18, borderTop: `1px solid ${T.divider}`, textAlign: "center" }}>
+              {overnightReviewOpen && (
+                <div style={{ marginBottom: kmReviewOpen ? 28 : 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: T.text, marginBottom: 4 }}>
+                    {pendingOvernightQuestions.length} shift{pendingOvernightQuestions.length === 1 ? "" : "s"} ran through the night
+                  </div>
+                  <p style={{ fontSize: 12.5, color: T.textDim, margin: "4px auto 0", maxWidth: 640 }}>
+                    An overnight stay is paid as the $
+                    {(allowances.sleepover || 0).toFixed(2)} allowance, so the hours from midnight to 8am
+                    aren't counted and the shift picks back up at 8am. Working through the night awake is
+                    paid by the hour instead — please confirm which these were.
+                  </p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 16 }}>
+                    {pendingOvernightQuestions.map((c) => {
+                      const s = c.shift;
+                      const note = (s.notes || []).find((n) => n && n.trim());
+                      return (
+                        <div key={c.id}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, marginBottom: 5 }}>
+                            {c.personName}
+                            <span style={{ fontWeight: 600, color: T.textFaint }}> · {formatDateSmart(s.dateISO, s.day)}</span>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, flexWrap: "wrap" }}>
+                            <div style={{ width: KM_QUESTION_WIDTH, maxWidth: "100%", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 12, flexWrap: "wrap" }}>
+                              {note && <div style={{ fontSize: 12.5, fontStyle: "italic", color: T.text, lineHeight: 1.5 }}>❝{note.trim().replace(/\s+/g, " ")}❞</div>}
+                              <div style={{ fontSize: 14, fontWeight: 700, color: T.text, whiteSpace: "nowrap" }}>
+                                {minutesToTimeStr(s.firstInMin)} → {minutesToTimeStr(s.lastOutMin)}, overnight stay?
+                              </div>
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                              <button className="sb-focuschip" style={{ ...focusChip, color: T.good }}
+                                onClick={() => setApprovedOvernights((p) => ({ ...p, [c.id]: "approved" }))}>Yes</button>
+                              <button className="sb-focuschip" style={focusChip}
+                                onClick={() => setApprovedOvernights((p) => ({ ...p, [c.id]: "rejected" }))}>No</button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              {kmReviewOpen && (
+              <div>
               <div style={{ fontWeight: 700, fontSize: 13, color: T.text, marginBottom: 4 }}>
                 {pendingKmQuestions.length} number{pendingKmQuestions.length === 1 ? "" : "s"} in the notes might be km
               </div>
@@ -2820,10 +2963,12 @@ function App() {
                   </div>
                 ))}
               </div>
+              </div>
+              )}
             </div>
           )}
 
-          {shifts.length > 0 && !kmReviewOpen && (
+          {shifts.length > 0 && !reviewOpen && (
             /* the rule and gap separate this from the import controls above, which
                focus mode hides — leaving a stray line across the top of the card */
             <div style={focusMode
@@ -3135,14 +3280,20 @@ function App() {
                                         curGroup.shifts.push(s);
                                       }
                                       return groups.map((g, gi) => {
-                                        const dayTotal = g.shifts.reduce((a, s) => a + s.hours, 0);
+                                        const partsByShift = g.shifts.map((s) => splitSegmentByWindow(s, holidaySet, levels[e.level] || levels.l21, e.isOvernight(s)));
+                                        /* Paid hours, not recorded hours. The two are the same for every
+                                           ordinary shift — the windows cover the whole segment — but an
+                                           overnight drops its unpaid midnight-to-8am block, and it is the
+                                           paid figure the overtime rule below is actually applied to. */
+                                        const dayTotal = partsByShift.reduce((a, parts) => a + parts.reduce((b, p) => b + p.hours, 0), 0);
                                         const first = g.shifts[0];
                                         const isPH = first.dateISO && holidaySet.has(first.dateISO);
                                         const isPenaltyDay = first.day === "Saturday" || first.day === "Sunday" || isPH;
                                         return (
                                           <React.Fragment key={g.dateISO || gi}>
                                             {g.shifts.map((s, i) => {
-                                              const parts = splitSegmentByWindow(s, holidaySet, levels[e.level] || levels.l21);
+                                              const parts = partsByShift[i];
+                                              const overnight = e.isOvernight(s);
                                               const dotColor = isPH ? T.warn : isPenaltyDay ? T.accent : "transparent";
                                               return (
                                                 <tr key={i}>
@@ -3166,6 +3317,14 @@ function App() {
                                                         <span style={{ color: T.textDim }}>{DAY_TYPE_SHORT[p.dayType] || p.dayType}</span>
                                                       </span>
                                                     ))}
+                                                    {/* Without this the row reads as an arithmetic error: the raw
+                                                        hours beside it won't add up to the split, and nothing else
+                                                        on screen says why. */}
+                                                    {overnight && (
+                                                      <div style={{ color: T.textFaint, fontSize: 11, marginTop: 3 }}>
+                                                        overnight stay — 12am–8am not paid hourly
+                                                      </div>
+                                                    )}
                                                   </td>
                                                   <td style={{ ...S.tdStyle, fontSize: 11.5 }}>
                                                     {(s.notes || []).length ? s.notes.map((n, ni) => <div key={ni} style={{ marginBottom: ni < s.notes.length - 1 ? 3 : 0 }}><HighlightedNote note={n} T={T} /></div>) : "—"}
