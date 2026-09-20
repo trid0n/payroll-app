@@ -961,6 +961,16 @@ function formatDateSmart(dateISO, dayName) {
   return `${shortDay} ${d} ${shortMonth}`;
 }
 
+// Which Australian financial year a date falls in, as the "2026-27" string the
+// FY dropdown uses. The year runs 1 July to 30 June.
+function fyOfISO(iso) {
+  if (!iso) return null;
+  const [y, m] = iso.split("-").map(Number);
+  if (!y) return null;
+  const startYear = m >= 7 ? y : y - 1;
+  return `${startYear}-${String(startYear + 1).slice(-2)}`;
+}
+
 // "Sep 5 - Sep 11", for the week rows in Km's History. No year: the list runs in
 // date order, so it only ever repeated itself down the column.
 function formatWeekRange(fromISO, toISO) {
@@ -1855,6 +1865,7 @@ function App() {
   const [approvedKmCandidates, setApprovedKmCandidates] = useState({});
   const [approvedOvernights, setApprovedOvernights] = useState({});
   const [expandedKmSheet, setExpandedKmSheet] = useState({});
+  const [expandedKmPerson, setExpandedKmPerson] = useState({});
 
   const [storageReady, setStorageReady] = useState(false);
   const [saveErr, setSaveErr] = useState("");
@@ -2478,6 +2489,21 @@ function App() {
     }, 340); // after CollapseBody's 0.3s open animation has settled, so the height is real
   }, []);
 
+  /* Same idea for anything else that opens in place: bring the newly-revealed
+     content into view, but never scroll past the top of the thing itself —
+     going further would take the heading you just clicked off the screen. */
+  const revealAfterExpand = useCallback((elementId) => {
+    window.setTimeout(() => {
+      const el = document.getElementById(elementId);
+      if (!el) return;
+      const box = el.getBoundingClientRect();
+      const top = box.top + window.scrollY - 12;
+      const needed = box.bottom + window.scrollY - window.innerHeight + 20;
+      const target = Math.min(needed, top);
+      if (target > window.scrollY + 2) window.scrollTo({ top: target, behavior: "smooth" });
+    }, 340);
+  }, []);
+
   /* The move runs in two phases so the change actually reads as movement: the
      person you're leaving travels off one edge, then the next one travels in from
      the other. Sliding only the incoming content — which is what a single
@@ -2793,6 +2819,35 @@ function App() {
     for (let y = currentReal - 1; y <= currentReal + 20; y++) arr.push({ value: y, label: String(y) });
     return arr;
   }, []);
+
+  /* Every committed week in the current financial year that has a record for
+     this person, oldest first — the weekly km behind their YTD figure.
+
+     Weeks where they drove nothing are kept rather than skipped: a km history
+     with holes in it reads as missing weeks, which is exactly the thing the
+     placeholders in Km's History exist to point out. */
+  const currentFY = useMemo(() => {
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    return fyOfISO(`${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`);
+  }, []);
+  /* Built for everyone in one pass rather than per person on demand. Two reasons:
+     it is one walk of the sheets instead of one per row, and the rows have to
+     exist while the panel is still CLOSED — CollapseBody animates the height of
+     content that is already there, so content appearing at the same moment as
+     the animation starts means no animation at all. */
+  const kmWeeksByPerson = useMemo(() => {
+    const map = {};
+    for (const sheet of committedSheets) {
+      if (fyOfISO(sheet.dateFrom) !== currentFY) continue;
+      for (const pid of Object.keys(sheet.perEmployee || {})) {
+        const rec = sheet.perEmployee[pid];
+        (map[pid] = map[pid] || []).push({ id: sheet.id, dateFrom: sheet.dateFrom, dateTo: sheet.dateTo, km: rec.weekKm || 0 });
+      }
+    }
+    for (const pid of Object.keys(map)) map[pid].sort((a, b) => (a.dateFrom || "").localeCompare(b.dateFrom || ""));
+    return map;
+  }, [committedSheets, currentFY]);
 
   const fyOptions = useMemo(() => {
     const now = new Date();
@@ -3817,9 +3872,12 @@ function App() {
                 const totalKm = people.reduce((a, p) => a + (p.weekKm || 0), 0);
                 const open = !!expandedKmSheet[sheet.id];
                 return (
-                  <div key={sheet.id} style={{ border: `1px solid ${T.divider}`, borderRadius: 10, overflow: "hidden" }}>
+                  <div key={sheet.id} id={`kmsheet-${sheet.id}`} style={{ border: `1px solid ${T.divider}`, borderRadius: 10, overflow: "hidden" }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", background: T.accentSoft }}>
-                      <button onClick={() => setExpandedKmSheet((prev) => ({ ...prev, [sheet.id]: !prev[sheet.id] }))}
+                      <button onClick={() => {
+                          setExpandedKmSheet((prev) => ({ ...prev, [sheet.id]: !prev[sheet.id] }));
+                          if (!open) revealAfterExpand(`kmsheet-${sheet.id}`);
+                        }}
                         style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
                         <ChevronDown size={15} style={{ transform: open ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s ease", color: T.textDim, flexShrink: 0 }} />
                         <span style={{ fontWeight: 700, fontSize: 12.5, color: T.text }}>{formatWeekRange(sheet.dateFrom, sheet.dateTo)}</span>
@@ -3828,8 +3886,16 @@ function App() {
                       </button>
                       <IconButton icon={Trash2} label="Delete" onClick={() => deleteSheet(sheet.id)} T={T} />
                     </div>
-                    {open && (
-                      <div className="sb-table" style={{ overflowX: "auto", padding: 10 }}>
+                    {/* CollapseBody, not a bare conditional — it animates the height
+                        rather than snapping it, which is what the rest of the app does. */}
+                    <CollapseBody open={open}>
+                      {/* The horizontal scroller has to sit inside a plain block, not be
+                          the grid item itself: a scroll container's automatic minimum
+                          size is zero, so CollapseBody's 1fr row collapsed to nothing
+                          and the panel opened to a 16px sliver. Same nesting the shift
+                          detail uses. */}
+                      <div style={{ padding: 10 }}>
+                      <div className="sb-table" style={{ overflowX: "auto" }}>
                         <table style={S.tableStyle}>
                           <thead><tr><th style={S.thStyle}>Name</th><th style={S.thStyle}>Km this week</th><th style={S.thStyle}>Km YTD now</th></tr></thead>
                           <tbody>
@@ -3848,7 +3914,8 @@ function App() {
                           </tbody>
                         </table>
                       </div>
-                    )}
+                      </div>
+                    </CollapseBody>
                   </div>
                 );
               })}
@@ -3889,8 +3956,11 @@ function App() {
                   const lvl = levels[p.level] || levels.l21;
                   const over = p.kmYTD >= (kmSettings.threshold || 5000);
                   const remaining = Math.max(0, (kmSettings.threshold || 5000) - p.kmYTD);
+                  const kmOpen = !!expandedKmPerson[p.id];
+                  const kmWeeks = kmWeeksByPerson[p.id] || [];
                   return (
-                    <tr key={p.id}>
+                    <React.Fragment key={p.id}>
+                    <tr>
                       <td style={{ ...S.tdStyle, fontWeight: 600 }}>{p.name}{p.flatRateOnly && <span style={S.badgeStyle}>flat rate only</span>}</td>
                       <td style={S.tdStyle}>{lvl.label}</td>
                       <td style={S.tdStyle}>{lvl.flat ? "—" : <ClickCopyEdit value={lvl.hourly} displayText={money(lvl.hourly)} copyText={lvl.hourly} editable={false} T={T} width={64} />}</td>
@@ -3899,10 +3969,68 @@ function App() {
                       <td style={S.tdStyle}>{lvl.flat ? "—" : <ClickCopyEdit value={lvl.saturday} displayText={money(lvl.saturday)} copyText={lvl.saturday} editable={false} T={T} width={64} />}</td>
                       <td style={S.tdStyle}>{lvl.flat ? "—" : <ClickCopyEdit value={lvl.sunday} displayText={money(lvl.sunday)} copyText={lvl.sunday} editable={false} T={T} width={64} />}</td>
                       <td style={S.tdStyle}>{lvl.flat ? <ClickCopyEdit value={lvl.hourly} displayText={money(lvl.hourly)} copyText={lvl.hourly} editable={false} T={T} width={64} /> : <ClickCopyEdit value={lvl.publicHoliday} displayText={money(lvl.publicHoliday)} copyText={lvl.publicHoliday} editable={false} T={T} width={64} />}</td>
-                      <td style={S.tdStyle}>{p.kmYTD?.toLocaleString?.() ?? p.kmYTD} km</td>
+                      <td style={S.tdStyle}>
+                        <button
+                          onClick={() => {
+                            setExpandedKmPerson((prev) => ({ ...prev, [p.id]: !prev[p.id] }));
+                            if (!kmOpen) revealAfterExpand(`kmperson-${p.id}`);
+                          }}
+                          style={{ all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5, color: T.accent, fontWeight: 600 }}>
+                          <ChevronDown size={12} style={{ transform: kmOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s ease", flexShrink: 0 }} />
+                          {p.kmYTD?.toLocaleString?.() ?? p.kmYTD} km
+                        </button>
+                      </td>
                       <td style={{ ...S.tdStyle, fontWeight: 600, color: over ? T.warn : T.good }}>{over ? `${money(kmSettings.overExempt)}/km exempt` : `${money(kmSettings.underTaxable)}+${money(kmSettings.underExempt)}/km`}</td>
                       <td style={S.tdStyle}>{over ? "over threshold" : `${remaining.toLocaleString()} km left`}</td>
                     </tr>
+                    <tr>
+                      <td colSpan={11} style={{ padding: 0, borderBottom: kmOpen ? `1px solid ${T.divider}` : "none" }}>
+                        {/* The rates table is far wider than the screen and scrolls
+                            horizontally, so a panel laid out across the full row would
+                            have its columns sitting off to the right. Sticky-left pins
+                            it to the visible edge, and max-content keeps it as narrow
+                            as its own three columns rather than the eleven above. */}
+                        <div id={`kmperson-${p.id}`} style={{ position: "sticky", left: 0, width: "max-content", maxWidth: 520 }}>
+                          <CollapseBody open={kmOpen}>
+                            <div style={{ padding: "4px 10px 14px" }}>
+                              <div style={{ fontSize: 11.5, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>
+                                {p.name} · km by week · FY {currentFY}
+                              </div>
+                              {kmWeeks.length === 0 ? (
+                                <div style={{ fontSize: 12.5, color: T.textFaint, fontStyle: "italic" }}>No committed weeks for them this financial year.</div>
+                              ) : (
+                                <table style={{ ...S.tableStyle, width: "auto", minWidth: 300 }}>
+                                  <thead><tr><th style={S.thStyle}>Week</th><th style={{ ...S.thStyle, textAlign: "right" }}>Km</th><th style={{ ...S.thStyle, textAlign: "right" }}>Running</th></tr></thead>
+                                  <tbody>
+                                    {(() => {
+                                      let running = 0;
+                                      return kmWeeks.map((w) => {
+                                        running += w.km;
+                                        return (
+                                          <tr key={w.id}>
+                                            <td style={{ ...S.tdStyle, fontWeight: 600 }}>{formatWeekRange(w.dateFrom, w.dateTo)}</td>
+                                            <td style={{ ...S.tdStyle, textAlign: "right", fontVariantNumeric: "tabular-nums", color: w.km ? T.text : T.textFaint }}>{w.km.toLocaleString()}</td>
+                                            <td style={{ ...S.tdStyle, textAlign: "right", fontVariantNumeric: "tabular-nums", color: T.textDim }}>{running.toLocaleString()}</td>
+                                          </tr>
+                                        );
+                                      });
+                                    })()}
+                                  </tbody>
+                                  <tfoot>
+                                    <tr>
+                                      <th style={{ ...S.thStyle, textAlign: "left" }}>{kmWeeks.length} week{kmWeeks.length === 1 ? "" : "s"}</th>
+                                      <th style={{ ...S.thStyle, textAlign: "right" }}>{kmWeeks.reduce((a, w) => a + w.km, 0).toLocaleString()}</th>
+                                      <th style={S.thStyle}></th>
+                                    </tr>
+                                  </tfoot>
+                                </table>
+                              )}
+                            </div>
+                          </CollapseBody>
+                        </div>
+                      </td>
+                    </tr>
+                    </React.Fragment>
                   );
                     })}
               </tbody>

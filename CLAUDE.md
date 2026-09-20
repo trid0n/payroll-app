@@ -493,6 +493,27 @@ invisible, because nothing is there to notice.
 - Two sheets inside the same week collapse to one week, so a split import can't
   invent a gap.
 
+### Per-person km history (Employee Rates)
+
+Clicking someone's **Km YTD** figure opens their week-by-week km for the current
+financial year, with a running total — the breakdown behind that one number.
+
+- The financial year is derived from today (`fyOfISO`, 1 July to 30 June), not
+  from the `exportFY` dropdown, which lives on a different tab and would be
+  invisible here. `kmYTD` is reset at rollover, so the current FY is what that
+  figure represents.
+- Weeks where they drove nothing are kept, not skipped. A km history with holes
+  reads as missing weeks, which is the thing the Km's History placeholders exist
+  to flag.
+- The panel is `position: sticky; left: 0` inside the row. The rates table is
+  far wider than the screen and scrolls horizontally, so a panel laid out across
+  the full row would have its columns off to the right; sticky pins it to the
+  visible edge and `width: max-content` keeps it as narrow as its own three
+  columns.
+- The running total should land on the person's `kmYTD`. If it doesn't, a sheet
+  was deleted or a YTD was edited by hand after the fact — useful to know, which
+  is part of why the column is there.
+
 ### Faith's implied hours in the cross-check
 
 Faith Winfield has standing admin hours that are **always entered in Payroller
@@ -553,6 +574,24 @@ so one key covers Jibble's "Melanie J Butler" style and Payroller's hyphenated
 - **`CollapseBody`** — CSS grid `0fr`/`1fr` height animation. **Use this**, not
   ad-hoc `{condition && <div>}`, for any new expand/collapse UI. Inconsistency
   here was a recurring complaint earlier in the build.
+
+  **Never make a horizontal scroller the direct child.** A scroll container's
+  automatic minimum size is zero, so the `1fr` row resolves to 0 and the panel
+  opens to a bare 16px sliver of margin with the content clipped away. Wrap it
+  in a plain block first — `<CollapseBody><div style={padding}><div
+  className="sb-table" style={{overflowX:"auto"}}>` — which is what the shift
+  detail already does. The Km's History week expander hit this exactly.
+
+  **Content must exist while it is still closed.** CollapseBody animates the
+  height of children that are already there, so computing them only when
+  `open` is true means the content appears at the same instant the animation
+  starts and there is no animation at all. That is why `kmWeeksByPerson` is a
+  memo over everyone rather than a per-row call gated on the open flag.
+- **`revealAfterExpand(elementId)`** — scrolls newly-revealed content into view
+  340ms after the click, once CollapseBody's 0.3s animation has settled and the
+  height is real. It never scrolls past the top of the element itself, so the
+  heading you just clicked stays on screen. `revealShiftDetail` is the older,
+  narrower version of the same thing.
 - **Theming** — pull colours from `T`; never hardcode them in a component.
 
 ---
