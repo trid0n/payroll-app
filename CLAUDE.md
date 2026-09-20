@@ -288,7 +288,10 @@ for this in the harness — a 9am–1pm plus 4pm–8pm pair must stay two segmen
    afternoon. Saturday, Sunday and public holiday shifts are **never** carved up
    by time of day — the whole of that day is one rate.
 4. **Once a shift ticks over midnight the hours belong to the new day**, and take
-   that day's rate or the overtime rate, whichever is higher.
+   that day's rate or the overtime rate, whichever is higher. This applies at
+   *every* midnight the segment crosses, not just the first — `splitSegmentByWindow`
+   walks the days one at a time, and each of them gets the same treatment as
+   point 3 (a later weekday day is split at 8pm into weekday/afternoon too).
 
 On point 4, the comparison that happens in `splitSegmentByWindow` is against
 `night` — the treatment those small hours would otherwise have had — and it is
@@ -320,6 +323,27 @@ worked hours at all. `splitSegmentByWindow` implements this by *dropping* the
 midnight–8am window rather than re-typing it, so those hours leave the pay run
 entirely.
 
+**A segment can run for several nights, and each night is cut separately.** A
+shift clocked in Monday 4pm and out Thursday 10am loses midnight–8am on each of
+the three nights and earns three allowances — never one cut running from the
+first midnight to the last morning. `midnightsCrossed` counts the nights.
+
+This is what `endDateISO` is for. A clock-out is only a *time of day*, so
+without the out-date a segment can only ever be read as crossing one midnight,
+and a longer one gets squashed into a single night with its hours scaled up to
+compensate — which is what produced the "68.57 raw hrs against a 20-hour split"
+readings. The date was in the CSV's Out row all along and was being discarded;
+`parseTimeEntriesRows` now keeps it. The daily export has no out-date, so
+segments from it fall back to the old one-midnight assumption.
+
+A **missed clock-out** therefore now reads as what it is — one very long shift,
+priced hour by hour across the days it covers — rather than a short span with
+its hours scaled up. The arithmetic is right; the data still isn't, and the fix
+is still to correct the clock-out in Jibble and re-import. The `+Nd` marker
+beside the Out time in the shift detail exists to make that visible, since a
+clock-out is only a time of day and a three-day shift otherwise looks like an
+ordinary morning finish.
+
 That window is the `night` bucket, which is why this matters so much: on an
 overnight, up to eight hours of night rate are replaced by one $60.02
 allowance. Getting the classification wrong is a several-hundred-dollar error
@@ -336,15 +360,24 @@ in whichever direction it goes.
   ordinary late finish isn't swept up, early enough not to miss a night that
   ended before the usual morning.
 - **One night is one allowance.** `sleepoverFor` takes `Math.max` of the
-  note-derived count and the time-derived one per segment, never their sum, so a
-  segment that matches both isn't billed twice.
-- **Overtime still sees it as one continuous shift.** The paid hours arrive in
-  two blocks either side of an unpaid night, but every part carries the
-  segment's *start* date, so both count against the same day's 10 hours rather
-  than being split across two days. The unpaid night never reaches
-  `computeWeekBuckets`, so sleeping hours can't push anyone into overtime. A
-  4pm→10am overnight is 8h + 2h = 10h and no OT; the same shift answered "not an
-  overnight" is 18h and 8h of OT.
+  note-derived count and `midnightsCrossed`, never their sum, so a segment that
+  matches both isn't billed twice. One note saying "sleepover" on a three-night
+  segment still pays three.
+- **Overtime sees the whole segment as one continuous shift**, however many
+  nights it spans. The paid hours arrive in blocks either side of each unpaid
+  night, but every part carries the segment's *start* date, so they all count
+  against one 10-hour check rather than being spread over the days they fall on.
+  The unpaid nights never reach `computeWeekBuckets`, so sleeping hours can't
+  push anyone into overtime. Worked examples:
+  - 4pm→10am overnight = 8h + 2h = **10h, no OT**; answered "not an overnight"
+    it is 18h and 8h of OT.
+  - Mon 4pm→Thu 10am (66h recorded) = 24h unpaid across 3 nights, **42h paid,
+    32h of it overtime** (2h tier 1 + 30h tier 2), plus 3 × $60.02. This is a
+    deliberately large number — it is what "continuous for overtime" means over
+    three days, and Liam asked for it explicitly.
+  - The same span Fri→Mon lands 16h on Saturday and 16h on Sunday, which are
+    both outside the daily check, so it is only **4h of OT** (Saturday's own
+    12-hour rule).
 - **Hours are scaled before the window is dropped**, so a break Jibble already
   deducted spreads across the paid blocks in proportion instead of landing
   entirely on one.
@@ -358,6 +391,16 @@ in whichever direction it goes.
   plus the allowance, and the five hours from midnight to 5am are gone. That
   falls straight out of the rule as specified, and the gate is what stops it
   happening to a shift that was genuinely worked awake.
+- **The 3am threshold only decides whether to ask.** Once a segment is confirmed,
+  every midnight it crossed is a night. Any segment running more than one night
+  is past 3am by definition, so the single `OVERNIGHT_MIN_END_MINUTES` test
+  covers both the one-night and multi-night cases.
+- **Saturday OT on a multi-day segment is keyed to the segment's start date**
+  (`satDayTotals` in `computeWeekBuckets`), not to the Saturday itself. With one
+  Saturday in the span that still produces the right figure; a segment long
+  enough to contain two Saturdays would pool them. Pre-existing, and left alone
+  because Saturday OT is validated against real payslips — but it is now
+  reachable in a way it wasn't before.
 
 ### Overtime (`computeWeekBuckets`) — the trickiest part
 

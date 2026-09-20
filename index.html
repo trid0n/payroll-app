@@ -776,6 +776,15 @@ function addDaysISO(iso, days) {
   const pad = (n) => String(n).padStart(2, "0");
   return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
 }
+// Whole days from `a` to `b`. Built on Date.UTC rather than local dates so the
+// two DST switchovers a year can't make a day come out as 23 or 25 hours.
+function daysBetweenISO(a, b) {
+  if (!a || !b) return null;
+  const [ay, am, ad] = a.split("-").map(Number);
+  const [by, bm, bd] = b.split("-").map(Number);
+  if (!ay || !by) return null;
+  return Math.round((Date.UTC(by, bm - 1, bd) - Date.UTC(ay, am - 1, ad)) / 86400000);
+}
 // Truncates (never rounds) to 2 decimal places, per how the business wants
 // hours reported — 3.698 stays 3.69, it never bumps to 3.70. The tiny
 // epsilon guards against floating-point artifacts like 3.6899999999.
@@ -967,11 +976,16 @@ function parseTimeEntriesRows(rows) {
 
     if (entryType === "In") {
       if (open[empKey]) segments.push(open[empKey]); // defensively close a dangling one
-      open[empKey] = { key: empKey, name, code, dateISO, dateRaw, day, hours: parseDuration(r[durIdx]), firstInMin: parseTimeToMinutes(r[timeIdx]), lastOutMin: null, notes: note ? [note] : [] };
+      open[empKey] = { key: empKey, name, code, dateISO, dateRaw, day, hours: parseDuration(r[durIdx]), firstInMin: parseTimeToMinutes(r[timeIdx]), lastOutMin: null, endDateISO: null, notes: note ? [note] : [] };
     } else if (entryType === "Out") {
       const t = parseTimeToMinutes(r[timeIdx]);
       if (open[empKey]) {
         open[empKey].lastOutMin = t;
+        // The clock-out's own date, which is the only thing that says how many
+        // nights a segment actually spans. Without it a shift can only ever be
+        // read as crossing one midnight, and a longer one gets squashed into a
+        // single night with its hours scaled up to compensate.
+        open[empKey].endDateISO = dateISO;
         if (note) open[empKey].notes.push(note);
         segments.push(open[empKey]);
         delete open[empKey];
@@ -979,7 +993,7 @@ function parseTimeEntriesRows(rows) {
         skipped++;
       }
     } else if (entryType === "Hours") {
-      segments.push({ key: empKey, name, code, dateISO, dateRaw, day, hours: parseDuration(r[durIdx]), firstInMin: null, lastOutMin: null, notes: note ? [note] : [] });
+      segments.push({ key: empKey, name, code, dateISO, dateRaw, day, hours: parseDuration(r[durIdx]), firstInMin: null, lastOutMin: null, endDateISO: null, notes: note ? [note] : [] });
     }
   }
   for (const k of Object.keys(open)) segments.push(open[k]);
@@ -1004,7 +1018,7 @@ function parseDailyRawRows(rows) {
     if (!hoursRaw || hoursRaw === "-") hoursRaw = workedIdx !== -1 ? cleanVal(r[workedIdx]) : "";
     const hours = parseDuration(hoursRaw);
     if (hours <= 0) continue;
-    shifts.push({ key: code || name, name, code, dateISO, dateRaw, day: dayIdx !== -1 ? cleanVal(r[dayIdx]) : dayNameFromISO(dateISO), hours, firstInMin: firstInIdx !== -1 ? parseTimeToMinutes(r[firstInIdx]) : null, lastOutMin: lastOutIdx !== -1 ? parseTimeToMinutes(r[lastOutIdx]) : null, notes: [] });
+    shifts.push({ key: code || name, name, code, dateISO, dateRaw, day: dayIdx !== -1 ? cleanVal(r[dayIdx]) : dayNameFromISO(dateISO), hours, firstInMin: firstInIdx !== -1 ? parseTimeToMinutes(r[firstInIdx]) : null, lastOutMin: lastOutIdx !== -1 ? parseTimeToMinutes(r[lastOutIdx]) : null, endDateISO: null, notes: [] });
   }
   return { shifts, skipped, format: "dailyRaw" };
 }
@@ -1026,14 +1040,12 @@ const CONTINUOUS_SHIFT_GAP_MINUTES = 5;
 // can't be compared. Both sides are measured from the FIRST segment's midnight,
 // so a segment that ran past midnight reads as 1440+ rather than wrapping to 0.
 function gapBetweenSegments(a, b) {
-  if (a.lastOutMin == null || b.firstInMin == null || !a.dateISO || !b.dateISO) return null;
-  const aStart = a.firstInMin == null ? 0 : a.firstInMin;
-  const aEnd = a.lastOutMin <= aStart ? a.lastOutMin + 1440 : a.lastOutMin;
-  let bStart;
-  if (b.dateISO === a.dateISO) bStart = b.firstInMin;
-  else if (b.dateISO === addDaysISO(a.dateISO, 1)) bStart = b.firstInMin + 1440;
-  else return null;
-  return bStart - aEnd;
+  if (b.firstInMin == null || !a.dateISO || !b.dateISO) return null;
+  const aEnd = segmentEndMinutes(a);
+  if (aEnd == null) return null;
+  const offset = daysBetweenISO(a.dateISO, b.dateISO);
+  if (offset == null || offset < 0) return null;
+  return offset * 1440 + b.firstInMin - aEnd;
 }
 
 // The merged segment keeps the FIRST one's date and clock-in, which is what makes
@@ -1054,6 +1066,7 @@ function mergeContinuousSegments(shifts) {
         if (gap !== null && gap >= 0 && gap <= CONTINUOUS_SHIFT_GAP_MINUTES) {
           current.hours += s.hours;
           current.lastOutMin = s.lastOutMin;
+          current.endDateISO = s.endDateISO;
           current.notes = current.notes.concat(s.notes);
           continue;
         }
@@ -1157,21 +1170,41 @@ function extractSleepovers(notes) {
    night rate for a single $60.02 allowance. So a note saying "sleepover" is
    trusted on its own, and times that merely look like one are asked about
    instead — same shape as the km candidates above, and for the same reason. */
-const OVERNIGHT_MIN_END_MINUTES = 1620; // 3am, measured from the start day's midnight
-const OVERNIGHT_RESUME_MINUTES = 1920;  // 8am the following day
+const OVERNIGHT_MIN_END_MINUTES = 1620; // 3am the day after the start
+const OVERNIGHT_RESUME_MINUTES = 480;   // 8am, as minutes past that day's midnight
 
-// Minutes from the start day's midnight to the clock-out, so a segment that ran
-// past midnight reads as 1440+ rather than wrapping back around to a small number.
+// Minutes from the start day's midnight to the clock-out. A segment can run for
+// several days, so this counts the whole way rather than wrapping at one
+// midnight: `endDateISO` is what makes that possible.
+//
+// Without an out-date — the daily export, or a clock-in that was never closed —
+// it falls back to the old assumption of at most one midnight. That is the best
+// available reading of a row that simply doesn't say which day it ended on.
 function segmentEndMinutes(shift) {
   if (shift.firstInMin == null || shift.lastOutMin == null) return null;
-  return shift.lastOutMin <= shift.firstInMin ? shift.lastOutMin + 1440 : shift.lastOutMin;
+  const days = shift.endDateISO ? daysBetweenISO(shift.dateISO, shift.endDateISO) : null;
+  if (days == null || days < 0) {
+    return shift.lastOutMin <= shift.firstInMin ? shift.lastOutMin + 1440 : shift.lastOutMin;
+  }
+  return days * 1440 + shift.lastOutMin;
+}
+
+// How many midnights the segment crossed — one per night stayed. A clock-out at
+// exactly midnight hasn't crossed it.
+function midnightsCrossed(shift) {
+  const end = segmentEndMinutes(shift);
+  if (end == null) return 0;
+  return Math.max(0, Math.ceil(end / 1440) - 1);
 }
 
 function isOvernightByNote(shift) {
-  const end = segmentEndMinutes(shift);
-  return end != null && end > 1440 && extractSleepovers(shift.notes || []).count > 0;
+  return midnightsCrossed(shift) > 0 && extractSleepovers(shift.notes || []).count > 0;
 }
 
+// The 3am test only decides whether to ASK. Once a segment is confirmed as an
+// overnight, every midnight it crossed is a night — see `splitSegmentByWindow`.
+// Any segment running more than one night is past 3am by definition, so this
+// one threshold covers both cases.
 function isOvernightByTime(shift) {
   const end = segmentEndMinutes(shift);
   return end != null && end >= OVERNIGHT_MIN_END_MINUTES;
@@ -1283,48 +1316,55 @@ function baseDayType(shift, holidaySet) {
 // window is dropped rather than re-typed, so those hours leave the pay run
 // entirely — they are not worked hours.
 //
+// A segment can run for several nights, so the days are walked one at a time
+// rather than hardcoding "the start day and the one after it". EVERY midnight
+// it crossed is cut, and each earns its own allowance — the cut is always
+// midnight to 8am of that same night, never midnight of the first night through
+// to the last morning.
+//
 // Hours are scaled against the segment's real recorded duration, so the parts
 // add back up to exactly the original total — or, on an overnight, to the
-// original total less the unpaid night. Scaling before the window is dropped is
-// what makes a break Jibble already deducted spread across the paid blocks in
-// proportion rather than landing entirely on one of them.
+// original total less the unpaid nights. Scaling before the windows are dropped
+// is what makes a break Jibble already deducted spread across the paid blocks
+// in proportion rather than landing entirely on one of them.
 function splitSegmentByWindow(shift, holidaySet, rates, isOvernight) {
   const baseType = baseDayType(shift, holidaySet);
   if (shift.firstInMin == null || shift.lastOutMin == null || shift.hours <= 0) {
     return [{ dayType: baseType, hours: shift.hours, dateISO: shift.dateISO }];
   }
-  let start = shift.firstInMin;
-  let end = shift.lastOutMin;
-  if (end <= start) end += 1440;
-  const span = end - start;
+  const start = shift.firstInMin;
+  const end = segmentEndMinutes(shift);
+  const span = end == null ? 0 : end - start;
   if (span <= 0) return [{ dayType: baseType, hours: shift.hours, dateISO: shift.dateISO }];
   const scale = shift.hours / (span / 60);
 
-  const nextISO = addDaysISO(shift.dateISO, 1);
-  let nextType;
-  if (holidaySet.has(nextISO)) nextType = "publicHoliday";
-  else {
-    const nd = dayNameFromISO(nextISO);
-    nextType = nd === "Saturday" ? "saturday" : nd === "Sunday" ? "sunday" : "weekday";
-  }
-
   const rateOf = (type) => (rates ? Number(rates[type === "weekday" ? "hourly" : type]) || 0 : 0);
-  const smallHoursType =
-    nextType === "weekday" || !rates ? "night" : rateOf(nextType) > rateOf("night") ? nextType : "night";
+  const typeForISO = (iso) => {
+    if (holidaySet.has(iso)) return "publicHoliday";
+    const d = dayNameFromISO(iso);
+    return d === "Saturday" ? "saturday" : d === "Sunday" ? "sunday" : "weekday";
+  };
 
-  const smallHours = isOvernight ? [] : [{ from: 1440, to: OVERNIGHT_RESUME_MINUTES, type: smallHoursType }];
-  const windows = baseType === "weekday"
-    ? [
-        { from: 0, to: 1200, type: baseType },
-        { from: 1200, to: 1440, type: "afternoon" },
-        ...smallHours,
-        { from: OVERNIGHT_RESUME_MINUTES, to: 2880, type: nextType },
-      ]
-    : [
-        { from: 0, to: 1440, type: baseType },
-        ...smallHours,
-        { from: OVERNIGHT_RESUME_MINUTES, to: 2880, type: nextType },
-      ];
+  const windows = [];
+  for (let d = 0; d < Math.ceil(end / 1440); d++) {
+    const base = d * 1440;
+    // Day 0's type comes from the shift's own `day` field, which the CSV gives
+    // us directly; later days have to be derived from the date.
+    const type = d === 0 ? baseType : typeForISO(addDaysISO(shift.dateISO, d));
+    if (d > 0 && !isOvernight) {
+      windows.push({
+        from: base, to: base + OVERNIGHT_RESUME_MINUTES,
+        type: type === "weekday" || !rates ? "night" : rateOf(type) > rateOf("night") ? type : "night",
+      });
+    }
+    const dayStart = d === 0 ? 0 : OVERNIGHT_RESUME_MINUTES;
+    if (type === "weekday") {
+      windows.push({ from: base + dayStart, to: base + 1200, type });
+      windows.push({ from: base + 1200, to: base + 1440, type: "afternoon" });
+    } else {
+      windows.push({ from: base + dayStart, to: base + 1440, type });
+    }
+  }
 
   const parts = [];
   for (const w of windows) {
@@ -2175,10 +2215,11 @@ function App() {
     for (const s of rShifts) {
       const r = extractSleepovers(s.notes || []);
       quotes.push(...r.quotes);
-      // One night is one allowance. A segment that reads as an overnight from its
-      // times AND says "sleepover" in the note is still a single night, so these
-      // are the larger of the two counts, never their sum.
-      autoCount += Math.max(r.count, isOvernight(s) ? 1 : 0);
+      // One allowance per night, so a segment running Monday afternoon through to
+      // Thursday morning pays three. A segment that reads as an overnight from
+      // its times AND says "sleepover" in the note is still the same nights, so
+      // these are the larger of the two counts, never their sum.
+      autoCount += Math.max(r.count, isOvernight(s) ? midnightsCrossed(s) : 0);
     }
     const override = sleepoverOverride[rid];
     const count = override !== undefined && override !== "" ? parseInt(override, 10) || 0 : autoCount;
@@ -2900,6 +2941,13 @@ function App() {
                     {pendingOvernightQuestions.map((c) => {
                       const s = c.shift;
                       const note = (s.notes || []).find((n) => n && n.trim());
+                      const nights = midnightsCrossed(s);
+                      /* A multi-night segment has to say where it ended, or the
+                         question reads as an ordinary overnight and the number of
+                         allowances riding on the answer is invisible. */
+                      const endLabel = nights > 1 && s.endDateISO
+                        ? `${formatDateSmart(s.endDateISO, dayNameFromISO(s.endDateISO))} ${minutesToTimeStr(s.lastOutMin)}`
+                        : minutesToTimeStr(s.lastOutMin);
                       return (
                         <div key={c.id}>
                           <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, marginBottom: 5 }}>
@@ -2910,7 +2958,8 @@ function App() {
                             <div style={{ width: KM_QUESTION_WIDTH, maxWidth: "100%", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 12, flexWrap: "wrap" }}>
                               {note && <div style={{ fontSize: 12.5, fontStyle: "italic", color: T.text, lineHeight: 1.5 }}>❝{note.trim().replace(/\s+/g, " ")}❞</div>}
                               <div style={{ fontSize: 14, fontWeight: 700, color: T.text, whiteSpace: "nowrap" }}>
-                                {minutesToTimeStr(s.firstInMin)} → {minutesToTimeStr(s.lastOutMin)}, overnight stay?
+                                {minutesToTimeStr(s.firstInMin)} → {endLabel},{" "}
+                                {nights > 1 ? `${nights} overnight stays?` : "overnight stay?"}
                               </div>
                             </div>
                             <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
@@ -3294,6 +3343,8 @@ function App() {
                                             {g.shifts.map((s, i) => {
                                               const parts = partsByShift[i];
                                               const overnight = e.isOvernight(s);
+                                              const nights = midnightsCrossed(s);
+                                              const spanDays = s.endDateISO ? (daysBetweenISO(s.dateISO, s.endDateISO) || 0) : 0;
                                               const dotColor = isPH ? T.warn : isPenaltyDay ? T.accent : "transparent";
                                               return (
                                                 <tr key={i}>
@@ -3307,7 +3358,15 @@ function App() {
                                                     )}
                                                   </td>
                                                   <td style={S.tdStyle}>{s.firstInMin != null ? minutesToTimeStr(s.firstInMin) : "—"}</td>
-                                                  <td style={S.tdStyle}>{s.lastOutMin != null ? minutesToTimeStr(s.lastOutMin) : "—"}</td>
+                                                  <td style={S.tdStyle}>
+                                                    {s.lastOutMin != null ? minutesToTimeStr(s.lastOutMin) : "—"}
+                                                    {/* A clock-out is only a time of day, so a shift that ran for
+                                                        days looks identical to one that ended the same morning.
+                                                        That is exactly how a missed clock-out hides. */}
+                                                    {spanDays > 0 && (
+                                                      <span style={{ color: T.textFaint, fontSize: 10, marginLeft: 4 }}>+{spanDays}d</span>
+                                                    )}
+                                                  </td>
                                                   <td style={{ ...S.tdStyle, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{s.hours.toFixed(2)}</td>
                                                   <td style={{ ...S.tdStyle, fontSize: 12 }}>
                                                     {parts.map((p, pi) => (
@@ -3322,7 +3381,8 @@ function App() {
                                                         on screen says why. */}
                                                     {overnight && (
                                                       <div style={{ color: T.textFaint, fontSize: 11, marginTop: 3 }}>
-                                                        overnight stay — 12am–8am not paid hourly
+                                                        {nights > 1 ? `${nights} overnight stays` : "overnight stay"} — 12am–8am not paid hourly
+                                                        {nights > 1 ? " on each night" : ""}
                                                       </div>
                                                     )}
                                                   </td>
@@ -3335,21 +3395,30 @@ function App() {
                                             <tr className="sb-daytotal">
                                               <td colSpan={6} style={{ padding: "5px 9px 9px", fontSize: 11.5, color: T.textDim, borderTop: `1px solid ${T.divider}` }}>
                                                 {(() => {
-                                                  const isSaturday = first.day === "Saturday" && !isPH;
-                                                  const isSunOrPH = (first.day === "Sunday" || isPH) && first.day !== "Saturday";
-                                                  let otPhrase = null, plainNote;
-                                                  if (isSunOrPH) {
-                                                    plainNote = `${isPH ? "public holiday" : "Sunday"} — no daily overtime rule, paid in full`;
-                                                  } else if (isSaturday) {
-                                                    if (dayTotal > 12) otPhrase = `${(dayTotal - 12).toFixed(2)}h over 12hrs → over-2hrs OT rate`;
-                                                    else plainNote = "no OT until past 12 hours on a Saturday";
-                                                  } else {
-                                                    if (dayTotal > 10) otPhrase = `${(dayTotal - 10).toFixed(2)}h over 10hrs → overtime`;
+                                                  /* Read the thresholds off the split, not off the group's starting
+                                                     day. A segment that runs for days carries several day types at
+                                                     once, and keying on the first one claimed Saturday and Sunday
+                                                     hours were weekday overtime. These are the same two checks
+                                                     computeWeekBuckets applies, against the same hours. */
+                                                  const byType = {};
+                                                  for (const ps of partsByShift) for (const p of ps) byType[p.dayType] = (byType[p.dayType] || 0) + p.hours;
+                                                  const eligible = (byType.weekday || 0) + (byType.afternoon || 0) + (byType.night || 0);
+                                                  const satHours = byType.saturday || 0;
+                                                  const otPhrases = [];
+                                                  if (eligible > 10) otPhrases.push(`${(eligible - 10).toFixed(2)}h over 10hrs → overtime`);
+                                                  if (satHours > 12) otPhrases.push(`${(satHours - 12).toFixed(2)}h over 12hrs → over-2hrs OT rate`);
+                                                  let plainNote = null;
+                                                  if (!otPhrases.length) {
+                                                    if (satHours > 0) plainNote = "no OT until past 12 hours on a Saturday";
+                                                    else if (eligible === 0 && ((byType.sunday || 0) + (byType.publicHoliday || 0)) > 0)
+                                                      plainNote = `${byType.publicHoliday ? "public holiday" : "Sunday"} — no daily overtime rule, paid in full`;
                                                   }
                                                   return (
                                                     <>
                                                       <strong style={{ color: T.text, fontWeight: 700 }}>Day total {dayTotal.toFixed(2)}h</strong>
-                                                      {otPhrase && <span style={{ background: T.warnSoft, color: T.warn, borderRadius: 3, padding: "1px 5px", marginLeft: 7, fontWeight: 700 }}>{otPhrase}</span>}
+                                                      {otPhrases.map((p) => (
+                                                        <span key={p} style={{ background: T.warnSoft, color: T.warn, borderRadius: 3, padding: "1px 5px", marginLeft: 7, fontWeight: 700 }}>{p}</span>
+                                                      ))}
                                                       {plainNote && <span style={{ marginLeft: 7 }}>— {plainNote}</span>}
                                                     </>
                                                   );
