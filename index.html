@@ -3262,6 +3262,7 @@ function App() {
                         </td>
                         <td style={S.tdStyle}>
                           {(() => { const sc = sleepoverOverride[e.id] !== undefined && sleepoverOverride[e.id] !== "" ? parseInt(sleepoverOverride[e.id], 10) || 0 : e.sleepInfo.autoCount; return (
+                          <>
                           <ClickCopyEdit
                             value={sc}
                             displayText={String(sc)}
@@ -3276,6 +3277,23 @@ function App() {
                                 T={T} width={48} />
                             )}
                           />
+                          {/* The per-night rate, copyable and editable exactly as an hourly rate
+                              is in HourCell — it is the other half of what gets re-keyed into
+                              Payroller. Hidden at zero because this column is mostly zeros and
+                              a rate under every one of them is noise. */}
+                          {sc > 0 && (
+                            <ClickCopyEdit
+                              value={allowances.sleepover}
+                              displayText={`@${money(allowances.sleepover)}`}
+                              copyText={allowances.sleepover}
+                              onCommit={(v) => updateAllowance("sleepover", v)}
+                              inputType="number" inputStep="0.01"
+                              width={68}
+                              displayStyle={{ fontSize: 12.5, color: T.accent, marginTop: 2, fontWeight: 600 }}
+                              T={T}
+                            />
+                          )}
+                          </>
                           ); })()}
                           {e.sleepInfo.quotes.length > 0 && (
                             <div style={S.quoteStyle}>
