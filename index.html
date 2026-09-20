@@ -786,38 +786,42 @@ function daysBetweenISO(a, b) {
   if (!ay || !by) return null;
   return Math.round((Date.UTC(by, bm - 1, bd) - Date.UTC(ay, am - 1, ad)) / 86400000);
 }
-// The Monday on or before a date. A sheet's dateFrom is just the earliest day
-// anyone actually worked, so a week where nobody clocked on until Tuesday would
-// otherwise look like a different week from one that started on the Monday.
-// Anchoring to the Monday makes two sheets comparable however they fell.
-function weekStartISO(iso) {
-  if (!iso) return null;
-  const [y, m, d] = iso.split("-").map(Number);
-  if (!y) return null;
-  const dow = new Date(y, m - 1, d).getDay();   // 0 = Sunday
-  return addDaysISO(iso, -((dow + 6) % 7));
-}
-
 /* Weeks sitting between two committed sheets with nothing committed for them,
    so a week that never got imported shows up as a gap rather than as a silent
    absence nobody notices.
+
+   The week boundary comes from the sheets themselves, never from a weekday.
+   This business's payroll week runs Saturday to Friday, and an earlier version
+   that anchored to the Monday on or before dateFrom produced placeholders on
+   the wrong grid — a "missing" Aug 17-23 sitting directly under a committed
+   Aug 15-21, overlapping it and reading backwards. Stepping in 7s from a real
+   sheet's own dateFrom inherits whatever shape the weeks actually have, so it
+   works for any week start without being told which one.
+
+   Counted BACKWARDS from the later sheet so a placeholder can never overlap it;
+   raggedness (nobody clocked on until the second day of a week) absorbs into
+   the older side, where dateTo is already ragged anyway.
+
+   Rounding to the nearest week means genuinely consecutive sheets, which sit
+   5-9 days apart once ragged start days are allowed for, never read as a gap —
+   it takes 11 days before anything is reported.
 
    Only gaps BETWEEN sheets. The current week has no sheet until it is
    committed, and every week before the first one ever committed has none
    either — flagging those would mean a permanent warning that means nothing.
 
-   `sheets` in any order; returns each gap as the list of Monday week-starts it
+   `sheets` in any order; returns each gap as the list of week start dates it
    covers, oldest first. */
 function missingWeekRuns(sheets) {
   const starts = [];
-  for (const s of sheets) { const w = weekStartISO(s && s.dateFrom); if (w) starts.push(w); }
+  for (const s of sheets) if (s && s.dateFrom) starts.push(s.dateFrom);
   const unique = Array.from(new Set(starts)).sort();
   const runs = [];
   for (let i = 1; i < unique.length; i++) {
     const apart = Math.round(daysBetweenISO(unique[i - 1], unique[i]) / 7);
     if (apart <= 1) continue;
     const weeks = [];
-    for (let w = 1; w < apart; w++) weeks.push(addDaysISO(unique[i - 1], w * 7));
+    for (let w = apart - 1; w >= 1; w--) weeks.push(addDaysISO(unique[i], -7 * w));
     runs.push({ after: unique[i - 1], before: unique[i], weeks });
   }
   return runs;
@@ -3767,7 +3771,7 @@ function App() {
                   // `sorted` is descending, so the gap below this sheet is the one
                   // whose newer neighbour is this sheet's week. One row per missing
                   // week, newest first to match the sheets around them.
-                  const run = gapAfterWeek[weekStartISO(sheet.dateFrom)];
+                  const run = gapAfterWeek[sheet.dateFrom];
                   if (run) {
                     for (const week of run.weeks.slice().reverse()) out.push({ kind: "gap", week });
                     delete gapAfterWeek[run.before];

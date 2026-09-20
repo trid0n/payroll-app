@@ -465,16 +465,29 @@ A week with no committed sheet shows as a dashed placeholder in the list rather
 than as a silent absence — a week that never got imported is otherwise
 invisible, because nothing is there to notice.
 
-- **Weeks are anchored to the Monday on or before `dateFrom`** (`weekStartISO`).
-  `dateFrom` is just the earliest day anyone actually worked, so a week where
-  nobody clocked on until Tuesday would otherwise read as a different week from
-  one that started on the Monday. Without the anchoring, ordinary ragged weeks
-  produce false gaps — that is the case to re-test if this is ever changed.
+- **Never assume a week start day.** **This business's payroll week runs
+  Saturday to Friday** — Jibble exports came back as Aug 15–21 and Sep 5–11,
+  both Sat→Fri. An earlier version anchored each sheet to the Monday on or
+  before its `dateFrom`, which put the placeholders on the wrong grid: a
+  "missing" Aug 17–23 rendered directly beneath a committed Aug 15–21,
+  overlapping it and reading backwards down the list.
+
+  `missingWeekRuns` now steps in 7s from a real sheet's own `dateFrom`, so it
+  inherits whatever shape the weeks actually have without being told. If a gap
+  ever looks off by a few days, this is the thing to check first — and the fix
+  is *not* to hardcode Saturday.
+- **Counted backwards from the later sheet**, so a placeholder can never overlap
+  it. Raggedness (nobody clocked on until the second day of a week) absorbs into
+  the older side, where `dateTo` is already ragged anyway.
+- **Rounded to the nearest week.** Genuinely consecutive sheets sit 5–9 days
+  apart once ragged start days are allowed for, so nothing is reported until
+  they are 11 days apart. `dateFrom` is only the earliest day anyone actually
+  worked, not a period boundary, so some tolerance is mandatory.
 - **Only gaps *between* committed sheets** (`missingWeekRuns`). The current week
   has no sheet until it is committed, and neither does anything before the first
   week ever committed; flagging those would be a permanent warning that means
   nothing.
-- **One row per missing week**, each naming its own Monday-to-Sunday span, so a
+- **One row per missing week**, each naming its own seven-day span, so a
   three-week break is three rows. Liam asked for this specifically over a single
   summarising row per gap.
 - Two sheets inside the same week collapse to one week, so a split import can't
