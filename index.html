@@ -3752,25 +3752,26 @@ function App() {
                 for (const sheet of sorted) {
                   out.push({ kind: "sheet", sheet });
                   // `sorted` is descending, so the gap below this sheet is the one
-                  // whose newer neighbour is this sheet's week.
+                  // whose newer neighbour is this sheet's week. One row per missing
+                  // week, newest first to match the sheets around them.
                   const run = gapAfterWeek[weekStartISO(sheet.dateFrom)];
-                  if (run) { out.push({ kind: "gap", run }); delete gapAfterWeek[run.before]; }
+                  if (run) {
+                    for (const week of run.weeks.slice().reverse()) out.push({ kind: "gap", week });
+                    delete gapAfterWeek[run.before];
+                  }
                 }
                 return out;
               })().map((entry) => {
                 if (entry.kind === "gap") {
-                  const weeks = entry.run.weeks;
-                  const last = weeks[weeks.length - 1];
                   return (
-                    <div key={`gap-${entry.run.after}`} style={{ border: `1px dashed ${T.warn}66`, borderRadius: 10, background: T.warnSoft, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10 }}>
+                    <div key={`gap-${entry.week}`} style={{ border: `1px dashed ${T.warn}66`, borderRadius: 10, background: T.warnSoft, padding: "10px 12px", display: "flex", alignItems: "center", gap: 10 }}>
                       <AlertTriangle size={15} style={{ color: T.warn, flexShrink: 0 }} />
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontWeight: 700, fontSize: 12.5, color: T.warn }}>
-                          {weeks[0]} to {addDaysISO(last, 6)}
-                          {weeks.length > 1 && <span style={{ fontWeight: 600 }}> · {weeks.length} weeks</span>}
+                          {entry.week} to {addDaysISO(entry.week, 6)}
                         </div>
                         <div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>
-                          Nothing committed for {weeks.length === 1 ? "this week" : "these weeks"} — looks like {weeks.length === 1 ? "it was" : "they were"} never imported.
+                          Nothing committed for this week — looks like it was never imported.
                         </div>
                       </div>
                     </div>

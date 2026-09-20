@@ -474,8 +474,9 @@ invisible, because nothing is there to notice.
   has no sheet until it is committed, and neither does anything before the first
   week ever committed; flagging those would be a permanent warning that means
   nothing.
-- One row per gap, not per week, so a long break reads as
-  "2026-10-05 to 2026-10-18 · 2 weeks" rather than filling the list.
+- **One row per missing week**, each naming its own Monday-to-Sunday span, so a
+  three-week break is three rows. Liam asked for this specifically over a single
+  summarising row per gap.
 - Two sheets inside the same week collapse to one week, so a split import can't
   invent a gap.
 
